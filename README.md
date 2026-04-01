@@ -1,44 +1,71 @@
-# VeSpA: A QuPath Plugin for Vessel Spatial Analysis
+# VeSpA: Vessel Spatial Analysis for QuPath
 
-**VeSpA (Vessel Spatial Analysis)** is a QuPath extension that enables annotation-aware vessel segmentation through seamless integration of QuPath with an external Python-based image processing pipeline. The plugin allows users to perform spatially constrained segmentation directly on regions of interest (ROIs) within whole-slide or microscopy images and returns results as structured objects within the QuPath environment.
+<p align="center">
+  <img src="assets/vespa_logo.png" width="180"/>
+</p>
+
+<p align="center">
+  <b>Annotation-aware vessel segmentation directly inside QuPath</b>
+</p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/QuPath-plugin-blue"/>
+  <img src="https://img.shields.io/badge/Python-3.9%2B-green"/>
+  <img src="https://img.shields.io/badge/license-Apache--2.0-orange"/>
+  <img src="https://img.shields.io/badge/status-active-success"/>
+</p>
 
 ---
 
-## Summary
+## Overview
 
-Spatial characterization of vascular structures is critical in histopathology, oncology, and tissue microenvironment analysis. Existing tools often require exporting image regions and performing segmentation externally, limiting interactivity and reproducibility.  
+**VeSpA (Vessel Spatial Analysis)** is a QuPath extension for performing **ROI-aware vessel segmentation** directly within the QuPath environment.
 
-VeSpA addresses this limitation by integrating region-aware vessel segmentation directly within QuPath. The plugin enables users to select one or more annotations, perform segmentation using a Python-based pipeline, and reintegrate detected vessels as structured objects within the QuPath hierarchy. This workflow preserves spatial context and facilitates downstream quantitative analysis.
+The plugin integrates a Python-based image processing pipeline with QuPath, enabling:
+
+- segmentation of vessels within selected annotations
+- automatic reintegration of results into the image hierarchy
+- preservation of spatial context for downstream analysis
+
+---
+
+## Why use VeSpA?
+
+- No manual image export required  
+- Works directly on QuPath annotations  
+- Supports **multiple annotations in a single run**  
+- Returns results instantly to QuPath  
+- Fully reproducible pipeline  
+- Lightweight and extensible  
 
 ---
 
 ## Key Features
 
-- **Annotation-aware segmentation**  
-  Segmentation is constrained to user-defined ROIs, ensuring biologically relevant results.
+### Annotation-aware segmentation
+- Works with any ROI shape (polygon, freehand, rectangle)
+- Ensures segmentation results remain within biological regions
 
-- **Multi-annotation support**  
-  Multiple annotations can be processed in a single run, with results mapped back to their respective regions.
+### Multi-annotation processing
+- Select multiple annotations
+- Process them in one run
+- Results are mapped back to each annotation
 
-- **Seamless QuPath integration**  
-  Images are processed directly from the QuPath viewer without manual export.
+### Seamless QuPath integration
+- Extracts image regions via QuPath API
+- Returns detections directly to viewer
 
-- **Bidirectional workflow**  
-  Results are returned as detection objects within QuPath, preserving spatial relationships.
+### Python-powered processing
+Uses:
 
-- **External processing pipeline**  
-  Leverages Python libraries for robust image processing:
-  - OpenCV
-  - NumPy
-  - scikit-image
-  - pandas
-
-- **Export of quantitative outputs**  
-  Segmentation masks, overlays, and measurements are saved for further analysis.
+- OpenCV
+- NumPy
+- scikit-image
+- pandas
 
 ---
 
-## System Architecture
+## Architecture
 
 The plugin follows a modular architecture:
 
