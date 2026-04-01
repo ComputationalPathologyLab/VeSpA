@@ -2,7 +2,7 @@
   <img src="vespa_logo.png" width="180" alt="VeSpA logo"/>
 </p>
 
-<h1 align="center">VeSpA: Vessel Spatial Analysis for QuPath</h1>
+<h1 align="center">Vessel Spatial Analysis for QuPath</h1>
 
 <p align="center">
   <b>Annotation-based vessel segmentation directly inside QuPath</b>
