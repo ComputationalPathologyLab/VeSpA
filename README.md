@@ -41,3 +41,19 @@ VeSpA addresses this limitation by integrating region-aware vessel segmentation 
 ## System Architecture
 
 The plugin follows a modular architecture:
+
+``` text
+QuPath (GUI & ROI selection)
+↓
+Java Plugin (data extraction & orchestration)
+↓
+Region export (PNG)
+↓
+Python segmentation pipeline
+↓
+Contour & measurement extraction (CSV)
+↓
+Java Plugin (parsing & filtering)
+↓
+QuPath object hierarchy (detections)
+```
