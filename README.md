@@ -5,7 +5,7 @@
 <h1 align="center">VeSpA: Vessel Spatial Analysis for QuPath</h1>
 
 <p align="center">
-  <b>Annotation-aware vessel segmentation directly inside QuPath</b>
+  <b>Annotation-based vessel segmentation directly inside QuPath</b>
 </p>
 
 <p align="center">
@@ -19,7 +19,7 @@
 
 ## Overview
 
-**VeSpA (Vessel Spatial Analysis)** is a QuPath extension for performing **ROI-aware vessel segmentation** directly within the QuPath environment.
+**VeSpA (Vessel Spatial Analysis)** is a QuPath extension for performing **annotation based vessel segmentation** directly within the QuPath environment.
 
 The plugin integrates a Python-based image processing pipeline with QuPath, enabling:
 
