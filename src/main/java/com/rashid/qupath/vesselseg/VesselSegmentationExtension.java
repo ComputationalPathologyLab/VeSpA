@@ -13,6 +13,7 @@ import qupath.lib.roi.ROIs;
 import qupath.lib.roi.interfaces.ROI;
 
 import javafx.collections.FXCollections;
+import javafx.geometry.Insets;
 import javafx.scene.Scene;
 import javafx.scene.control.Alert;
 import javafx.scene.control.Button;
@@ -24,7 +25,14 @@ import javafx.scene.control.TextArea;
 import javafx.scene.control.TextField;
 import javafx.scene.control.ToggleGroup;
 import javafx.scene.layout.GridPane;
+import javafx.scene.layout.HBox;
+import javafx.scene.layout.VBox;
+import javafx.scene.paint.Color;
+import javafx.scene.text.Font;
+import javafx.scene.text.FontWeight;
 import javafx.stage.DirectoryChooser;
+import javafx.stage.FileChooser;
+import javafx.stage.Modality;
 import javafx.stage.Stage;
 
 import java.awt.image.BufferedImage;
@@ -37,16 +45,17 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.prefs.Preferences;
 
 import javax.imageio.ImageIO;
+// 
 
 public class VesselSegmentationExtension implements QuPathExtension {
 
-    private static final String PYTHON_EXEC =
-            "/Users/rashid/Installations/venve/bin/python3";
-
-    private static final String PYTHON_SCRIPT =
-            "/Users/rashid/6_qupath_ext/qupath_extensions/qupath-vessel-segmentation-1/scripts/vessels_segmentation.py";
+    private static final String PYTHON_EXEC_ENV = "QUPATH_VESSEL_PYTHON";
+    // Script is bundled at the root of the JAR (build.gradle uses scripts/ as resource srcDir)
+    private static final String PYTHON_SCRIPT_RESOURCE = "/vessels_segmentation.py";
+    private static final String PREF_PYTHON_PATH = "pythonExecutablePath";
 
     private static class ExportTask {
         String baseName;
@@ -71,12 +80,272 @@ public class VesselSegmentationExtension implements QuPathExtension {
         }
     }
 
+    private String getSavedPythonPath() {
+        return Preferences.userNodeForPackage(VesselSegmentationExtension.class)
+                .get(PREF_PYTHON_PATH, "");
+    }
+
+    private void savePythonPath(String path) {
+        Preferences.userNodeForPackage(VesselSegmentationExtension.class)
+                .put(PREF_PYTHON_PATH, path);
+    }
+
+    private String resolvePythonExecutable() throws Exception {
+        // 1. Saved user preference (set via Configure Python dialog)
+        String saved = getSavedPythonPath();
+        if (!saved.isBlank()) {
+            File f = new File(saved);
+            if (f.exists() && f.canExecute()) return f.getAbsolutePath();
+        }
+
+        // 2. Environment variable override
+        String envPath = System.getenv(PYTHON_EXEC_ENV);
+        if (envPath != null && !envPath.isBlank()) {
+            File f = new File(envPath);
+            if (f.exists() && f.canExecute()) {
+                savePythonPath(f.getAbsolutePath());
+                return f.getAbsolutePath();
+            }
+            throw new IllegalStateException(
+                    "Environment variable " + PYTHON_EXEC_ENV + " is set but not executable: " + envPath);
+        }
+
+        // 3. Auto-detect from PATH and common install locations
+        String detected = autoDetectPython();
+        if (detected != null) {
+            savePythonPath(detected);
+            return detected;
+        }
+
+        throw new IllegalStateException(
+                "No Python executable found.\n\n" +
+                "Please install Python with the required packages, then use:\n" +
+                "Extensions > Vessel Segmentation > Configure Python...");
+    }
+
+    private String autoDetectPython() {
+        // PATH search first
+        for (String name : new String[]{"python3", "python"}) {
+            String found = findExecutable(name);
+            if (found != null) return found;
+        }
+
+        // Common install locations (macOS / Linux / Windows)
+        String home = System.getProperty("user.home");
+        String os = System.getProperty("os.name", "").toLowerCase();
+        boolean isWindows = os.contains("win");
+
+        String[] candidates;
+        if (isWindows) {
+            candidates = new String[]{
+                home + "\\miniconda3\\python.exe",
+                home + "\\anaconda3\\python.exe",
+                home + "\\AppData\\Local\\Programs\\Python\\Python311\\python.exe",
+                home + "\\AppData\\Local\\Programs\\Python\\Python312\\python.exe",
+                "C:\\Python311\\python.exe",
+                "C:\\Python312\\python.exe",
+            };
+        } else {
+            candidates = new String[]{
+                "/opt/homebrew/bin/python3",
+                "/usr/local/bin/python3",
+                home + "/miniconda3/bin/python3",
+                home + "/miniforge3/bin/python3",
+                home + "/opt/anaconda3/bin/python3",
+                home + "/anaconda3/bin/python3",
+                "/usr/bin/python3",
+            };
+        }
+
+        for (String path : candidates) {
+            File f = new File(path);
+            if (f.exists() && f.canExecute()) return f.getAbsolutePath();
+        }
+        return null;
+    }
+
+    private boolean testPythonExecutable(String path) {
+        try {
+            ProcessBuilder pb = new ProcessBuilder(path, "--version");
+            pb.redirectErrorStream(true);
+            Process p = pb.start();
+            String output = new String(p.getInputStream().readAllBytes()).trim();
+            int code = p.waitFor();
+            return code == 0 && output.toLowerCase().startsWith("python");
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    private void showConfigureDialog(QuPathGUI qupath) {
+        Stage dialog = new Stage();
+        dialog.initModality(Modality.APPLICATION_MODAL);
+        dialog.setTitle("Configure Python — VeSpA");
+        dialog.setResizable(false);
+
+        VBox root = new VBox(14);
+        root.setPadding(new Insets(20));
+        root.setPrefWidth(560);
+
+        // Title
+        Label title = new Label("Python Configuration");
+        title.setFont(Font.font(null, FontWeight.BOLD, 14));
+
+        // Python path row
+        Label pathLabel = new Label("Python executable:");
+        TextField pathField = new TextField(getSavedPythonPath());
+        pathField.setPrefWidth(360);
+
+        Button browseBtn = new Button("Browse...");
+        browseBtn.setOnAction(e -> {
+            FileChooser fc = new FileChooser();
+            fc.setTitle("Select Python Executable");
+            if (!pathField.getText().isBlank()) {
+                File existing = new File(pathField.getText()).getParentFile();
+                if (existing != null && existing.exists()) fc.setInitialDirectory(existing);
+            }
+            File chosen = fc.showOpenDialog(dialog);
+            if (chosen != null) pathField.setText(chosen.getAbsolutePath());
+        });
+
+        Button autoBtn = new Button("Auto-detect");
+
+        HBox pathRow = new HBox(8, pathField, browseBtn, autoBtn);
+
+        // Status label
+        Label statusLabel = new Label();
+
+        Runnable updateStatus = () -> {
+            String p = pathField.getText().trim();
+            if (p.isBlank()) {
+                statusLabel.setText("No path entered.");
+                statusLabel.setTextFill(Color.GRAY);
+            } else if (testPythonExecutable(p)) {
+                statusLabel.setText("✓ Valid Python executable.");
+                statusLabel.setTextFill(Color.GREEN);
+            } else {
+                statusLabel.setText("✗ Not a valid Python executable.");
+                statusLabel.setTextFill(Color.RED);
+            }
+        };
+
+        autoBtn.setOnAction(e -> {
+            String detected = autoDetectPython();
+            if (detected != null) {
+                pathField.setText(detected);
+            } else {
+                pathField.setText("");
+                statusLabel.setText("✗ Could not auto-detect Python. Please browse or enter the path manually.");
+                statusLabel.setTextFill(Color.RED);
+            }
+            updateStatus.run();
+        });
+
+        // Required packages info
+        Label packagesTitle = new Label("Required Python packages:");
+        packagesTitle.setFont(Font.font(null, FontWeight.BOLD, 12));
+
+        TextArea packagesArea = new TextArea(
+                "opencv-python   numpy   scikit-image   pandas\n\n" +
+                "Install command:\n" +
+                "  pip install opencv-python numpy scikit-image pandas\n\n" +
+                "If using conda:\n" +
+                "  conda install -c conda-forge opencv numpy scikit-image pandas"
+        );
+        packagesArea.setEditable(false);
+        packagesArea.setPrefHeight(110);
+        packagesArea.setWrapText(true);
+        packagesArea.setStyle("-fx-font-family: monospace; -fx-font-size: 11;");
+
+        // Buttons
+        Button testBtn = new Button("Test");
+        testBtn.setOnAction(e -> updateStatus.run());
+
+        Button saveBtn = new Button("Save");
+        saveBtn.setDefaultButton(true);
+        saveBtn.setOnAction(e -> {
+            String p = pathField.getText().trim();
+            if (p.isBlank()) {
+                showMessage(Alert.AlertType.ERROR, "Invalid Path", "Please enter a Python executable path.");
+                return;
+            }
+            savePythonPath(p);
+            dialog.close();
+            showMessage(Alert.AlertType.INFORMATION, "Saved",
+                    "Python path saved.\nYou can now run Vessel Segmentation.");
+        });
+
+        Button cancelBtn = new Button("Cancel");
+        cancelBtn.setCancelButton(true);
+        cancelBtn.setOnAction(e -> dialog.close());
+
+        HBox buttonRow = new HBox(8, testBtn, saveBtn, cancelBtn);
+
+        root.getChildren().addAll(
+                title,
+                pathLabel, pathRow, statusLabel,
+                packagesTitle, packagesArea,
+                buttonRow
+        );
+
+        // Show status for currently saved path on open
+        updateStatus.run();
+
+        dialog.setScene(new Scene(root));
+        dialog.showAndWait();
+    }
+
+    private String findExecutable(String name) {
+        String pathEnv = System.getenv("PATH");
+        if (pathEnv == null || pathEnv.isBlank()) {
+            return null;
+        }
+
+        String[] paths = pathEnv.split(File.pathSeparator);
+        String[] candidates = {name, name + ".exe", name + ".cmd", name + ".bat"};
+
+        for (String dir : paths) {
+            for (String candidate : candidates) {
+                File file = new File(dir, candidate);
+                if (file.exists() && file.canExecute()) {
+                    return file.getAbsolutePath();
+                }
+            }
+        }
+        return null;
+    }
+
+    private File extractPythonScript() throws Exception {
+        var resourceStream = VesselSegmentationExtension.class.getResourceAsStream(PYTHON_SCRIPT_RESOURCE);
+        if (resourceStream == null) {
+            throw new IllegalStateException("Could not locate Python script resource: " + PYTHON_SCRIPT_RESOURCE);
+        }
+
+        File tempScript = Files.createTempFile("vespa_vessel_script", ".py").toFile();
+        tempScript.deleteOnExit();
+
+        try (var in = resourceStream; var out = Files.newOutputStream(tempScript.toPath())) {
+            in.transferTo(out);
+        }
+
+        if (!tempScript.setExecutable(true)) {
+            throw new IllegalStateException("Unable to make extracted Python script executable: " + tempScript.getAbsolutePath());
+        }
+
+        return tempScript;
+    }
+
     @Override
     public void installExtension(QuPathGUI qupath) {
         var menu = qupath.getMenu("Extensions > Vessel Segmentation", true);
-        MenuItem item = new MenuItem("Run Vessel Segmentation");
-        item.setOnAction(e -> openWindow(qupath));
-        menu.getItems().add(item);
+
+        MenuItem runItem = new MenuItem("Run Vessel Segmentation");
+        runItem.setOnAction(e -> openWindow(qupath));
+
+        MenuItem configItem = new MenuItem("Configure Python...");
+        configItem.setOnAction(e -> showConfigureDialog(qupath));
+
+        menu.getItems().addAll(runItem, configItem);
     }
 
     private void openWindow(QuPathGUI qupath) {
@@ -285,9 +554,10 @@ public class VesselSegmentationExtension implements QuPathExtension {
                 ));
             }
 
+            File pythonScriptFile = extractPythonScript();
             ProcessBuilder pb = new ProcessBuilder(
-                    PYTHON_EXEC,
-                    PYTHON_SCRIPT,
+                    resolvePythonExecutable(),
+                    pythonScriptFile.getAbsolutePath(),
                     tempInputDir.getAbsolutePath(),
                     outputPath,
                     "--dilation-kernel-width", String.valueOf(kernelWidth),

@@ -11,6 +11,14 @@ java {
     }
 }
 
+sourceSets {
+    main {
+        resources {
+            srcDirs += 'scripts'
+        }
+    }
+}
+
 repositories {
     mavenCentral()
     maven { url "https://maven.scijava.org/content/repositories/releases/" }

@@ -1,0 +1,14 @@
+# Build output
+build/
+out/
+
+# Gradle cache
+.gradle/
+
+# macOS
+.DS_Store
+
+# IDE
+.idea/
+*.iml
+.vscode/
