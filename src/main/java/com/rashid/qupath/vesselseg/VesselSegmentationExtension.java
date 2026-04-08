@@ -177,6 +177,40 @@ public class VesselSegmentationExtension implements QuPathExtension {
         }
     }
 
+    /**
+     * Checks that all required Python packages are importable.
+     * Returns null if all packages are present, or an error message listing what is missing.
+     */
+    private String checkRequiredPackages(String pythonExec) {
+        String checkScript =
+            "import sys\n" +
+            "missing = []\n" +
+            "for mod, pkg in [('cv2','opencv-python'),('numpy','numpy'),('skimage','scikit-image'),('pandas','pandas')]:\n" +
+            "    try: __import__(mod)\n" +
+            "    except ImportError: missing.append(pkg)\n" +
+            "if missing:\n" +
+            "    print('MISSING:' + ','.join(missing))\n" +
+            "    sys.exit(1)\n";
+        try {
+            ProcessBuilder pb = new ProcessBuilder(pythonExec, "-c", checkScript);
+            pb.redirectErrorStream(true);
+            Process p = pb.start();
+            String output = new String(p.getInputStream().readAllBytes()).trim();
+            p.waitFor();
+            if (output.startsWith("MISSING:")) {
+                String missing = output.substring("MISSING:".length());
+                return "Missing Python packages: " + missing + "\n\n" +
+                       "Install them by running:\n" +
+                       "  pip install " + missing.replace(",", " ") + "\n\n" +
+                       "Then use Extensions > Vessel Segmentation > Configure Python...\n" +
+                       "to point the plugin at a Python that has these packages.";
+            }
+            return null;
+        } catch (Exception e) {
+            return "Could not check Python packages: " + e.getMessage();
+        }
+    }
+
     private void showConfigureDialog(QuPathGUI qupath) {
         Stage dialog = new Stage();
         dialog.initModality(Modality.APPLICATION_MODAL);
@@ -554,9 +588,17 @@ public class VesselSegmentationExtension implements QuPathExtension {
                 ));
             }
 
+            String pythonExec = resolvePythonExecutable();
+
+            String packageError = checkRequiredPackages(pythonExec);
+            if (packageError != null) {
+                showExpandableMessage(Alert.AlertType.ERROR, "Missing Python Packages", packageError);
+                return;
+            }
+
             File pythonScriptFile = extractPythonScript();
             ProcessBuilder pb = new ProcessBuilder(
-                    resolvePythonExecutable(),
+                    pythonExec,
                     pythonScriptFile.getAbsolutePath(),
                     tempInputDir.getAbsolutePath(),
                     outputPath,
