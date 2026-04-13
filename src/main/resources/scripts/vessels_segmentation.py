@@ -20,7 +20,13 @@ def save_contours_csv(refined_contours, csv_path):
     df.to_csv(csv_path, index=False)
 
 
-def process_image(image_path, output_folder, dilation_kernel_size, dilation_kernel_shape):
+def process_image(
+    image_path,
+    output_folder,
+    dilation_kernel_size,
+    dilation_kernel_shape,
+    erosion_kernel_size
+):
     base_name = Path(image_path).stem
     image_output_dir = Path(output_folder) / base_name
     image_output_dir.mkdir(parents=True, exist_ok=True)
@@ -31,20 +37,20 @@ def process_image(image_path, output_folder, dilation_kernel_size, dilation_kern
 
     img_bgr_float = img_bgr.astype(np.float32) / 255.0
 
-    K = 1 - np.max(img_bgr_float, axis=2)
-    Y = (1 - img_bgr_float[:, :, 0] - K) / (1 - K + 1e-10)
-    Y_channel = (Y * 255).astype(np.uint8)
+    k_channel = 1 - np.max(img_bgr_float, axis=2)
+    y_channel = (1 - img_bgr_float[:, :, 0] - k_channel) / (1 - k_channel + 1e-10)
+    y_channel = (y_channel * 255).astype(np.uint8)
 
-    del img_bgr_float, K, Y
+    del img_bgr_float, k_channel
 
-    _, binary = cv2.threshold(Y_channel, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-    del Y_channel
+    _, binary = cv2.threshold(y_channel, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    del y_channel
 
     kernel_dilate = cv2.getStructuringElement(dilation_kernel_shape, dilation_kernel_size)
     dilated = cv2.dilate(binary, kernel_dilate, iterations=1)
     del binary, kernel_dilate
 
-    kernel_erode = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
+    kernel_erode = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, erosion_kernel_size)
     eroded = cv2.erode(dilated, kernel_erode, iterations=2)
     del dilated, kernel_erode
 
@@ -101,7 +107,13 @@ def process_image(image_path, output_folder, dilation_kernel_size, dilation_kern
     print("VESSEL_SEGMENTATION_SUCCESS")
 
 
-def process_folder(input_folder, output_folder, dilation_kernel_size, dilation_kernel_shape):
+def process_folder(
+    input_folder,
+    output_folder,
+    dilation_kernel_size,
+    dilation_kernel_shape,
+    erosion_kernel_size
+):
     input_path = Path(input_folder)
     png_files = sorted(input_path.glob("*.png"))
 
@@ -116,7 +128,8 @@ def process_folder(input_folder, output_folder, dilation_kernel_size, dilation_k
             str(png_file),
             output_folder,
             dilation_kernel_size,
-            dilation_kernel_shape
+            dilation_kernel_shape,
+            erosion_kernel_size
         )
 
 
@@ -134,6 +147,8 @@ def main():
         default="ELLIPSE",
         choices=["ELLIPSE", "RECT", "CROSS"]
     )
+    parser.add_argument("--erosion-kernel-width", type=int, default=3)
+    parser.add_argument("--erosion-kernel-height", type=int, default=3)
 
     args = parser.parse_args()
 
@@ -151,6 +166,11 @@ def main():
         args.dilation_kernel_height
     )
 
+    erosion_kernel_size = (
+        args.erosion_kernel_width,
+        args.erosion_kernel_height
+    )
+
     input_folder = Path(args.input_folder)
     if not input_folder.exists():
         raise ValueError(f"Input folder does not exist: {input_folder}")
@@ -161,12 +181,15 @@ def main():
     print(f"Dilation kernel width: {args.dilation_kernel_width}")
     print(f"Dilation kernel height: {args.dilation_kernel_height}")
     print(f"Dilation kernel shape: {args.dilation_kernel_shape}")
+    print(f"Erosion kernel width: {args.erosion_kernel_width}")
+    print(f"Erosion kernel height: {args.erosion_kernel_height}")
 
     process_folder(
         str(input_folder),
         str(output_folder),
         dilation_kernel_size,
-        dilation_kernel_shape
+        dilation_kernel_shape,
+        erosion_kernel_size
     )
 
 

@@ -13,6 +13,7 @@ import qupath.lib.roi.ROIs;
 import qupath.lib.roi.interfaces.ROI;
 
 import javafx.collections.FXCollections;
+import javafx.geometry.Insets;
 import javafx.scene.Scene;
 import javafx.scene.control.Alert;
 import javafx.scene.control.Button;
@@ -22,9 +23,11 @@ import javafx.scene.control.MenuItem;
 import javafx.scene.control.RadioButton;
 import javafx.scene.control.TextArea;
 import javafx.scene.control.TextField;
+import javafx.scene.control.TitledPane;
 import javafx.scene.control.ToggleGroup;
 import javafx.scene.layout.GridPane;
-import javafx.stage.DirectoryChooser;
+import javafx.scene.layout.HBox;
+import javafx.scene.layout.VBox;
 import javafx.stage.Stage;
 
 import java.awt.image.BufferedImage;
@@ -50,9 +53,13 @@ public class VesselSegmentationExtension implements QuPathExtension {
             Preferences.userNodeForPackage(VesselSegmentationExtension.class);
 
     private static final String PREF_PYTHON_EXEC = "pythonExec";
-    private static final String PREF_OUTPUT_DIR = "outputDir";
-
     private static final String PYTHON_SCRIPT_RESOURCE = "/scripts/vessels_segmentation.py";
+
+    private static final int DEFAULT_DILATION_WIDTH = 21;
+    private static final int DEFAULT_DILATION_HEIGHT = 21;
+    private static final int DEFAULT_EROSION_WIDTH = 3;
+    private static final int DEFAULT_EROSION_HEIGHT = 3;
+    private static final String DEFAULT_KERNEL_SHAPE = "ELLIPSE";
 
     private static class ExportTask {
         String baseName;
@@ -98,24 +105,6 @@ public class VesselSegmentationExtension implements QuPathExtension {
         Stage stage = new Stage();
         stage.setTitle("Vessel Segmentation");
 
-        GridPane grid = new GridPane();
-        grid.setHgap(10);
-        grid.setVgap(10);
-
-        Label outputLabel = new Label("Output folder:");
-        TextField outputField = new TextField(PREFS.get(PREF_OUTPUT_DIR, ""));
-        outputField.setPrefWidth(260);
-
-        Button browseButton = new Button("Browse");
-        browseButton.setOnAction(e -> {
-            DirectoryChooser chooser = new DirectoryChooser();
-            chooser.setTitle("Select Output Folder");
-            File dir = chooser.showDialog(stage);
-            if (dir != null) {
-                outputField.setText(dir.getAbsolutePath());
-            }
-        });
-
         Label inputModeLabel = new Label("Input region:");
         ToggleGroup inputModeGroup = new ToggleGroup();
 
@@ -126,72 +115,116 @@ public class VesselSegmentationExtension implements QuPathExtension {
         RadioButton selectedAnnotationButton = new RadioButton("Selected annotation(s)");
         selectedAnnotationButton.setToggleGroup(inputModeGroup);
 
-        Label widthLabel = new Label("Kernel width:");
-        TextField widthField = new TextField("21");
+        TextField dilationWidthField = new TextField(String.valueOf(DEFAULT_DILATION_WIDTH));
+        TextField dilationHeightField = new TextField(String.valueOf(DEFAULT_DILATION_HEIGHT));
+        TextField erosionWidthField = new TextField(String.valueOf(DEFAULT_EROSION_WIDTH));
+        TextField erosionHeightField = new TextField(String.valueOf(DEFAULT_EROSION_HEIGHT));
 
-        Label heightLabel = new Label("Kernel height:");
-        TextField heightField = new TextField("21");
-
-        Label shapeLabel = new Label("Kernel shape:");
         ComboBox<String> shapeBox = new ComboBox<>(
                 FXCollections.observableArrayList("ELLIPSE", "RECT", "CROSS")
         );
-        shapeBox.setValue("ELLIPSE");
+        shapeBox.setValue(DEFAULT_KERNEL_SHAPE);
 
+        GridPane optionsGrid = new GridPane();
+        optionsGrid.setHgap(12);
+        optionsGrid.setVgap(12);
+        optionsGrid.setPadding(new Insets(10, 0, 0, 0));
+
+        optionsGrid.add(new Label("Kernel width:"), 0, 0);
+        optionsGrid.add(dilationWidthField, 1, 0);
+
+        optionsGrid.add(new Label("Kernel height:"), 0, 1);
+        optionsGrid.add(dilationHeightField, 1, 1);
+
+        optionsGrid.add(new Label("Erosion width:"), 0, 2);
+        optionsGrid.add(erosionWidthField, 1, 2);
+
+        optionsGrid.add(new Label("Erosion height:"), 0, 3);
+        optionsGrid.add(erosionHeightField, 1, 3);
+
+        optionsGrid.add(new Label("Kernel shape:"), 0, 4);
+        optionsGrid.add(shapeBox, 1, 4);
+
+        TitledPane additionalOptionsPane = new TitledPane("Additional options", optionsGrid);
+        additionalOptionsPane.setExpanded(false);
+
+        Button defaultButton = new Button("Default");
+        Button resetButton = new Button("Reset");
         Button runButton = new Button("Run");
+        Button exitButton = new Button("Exit");
+
+        defaultButton.visibleProperty().bind(additionalOptionsPane.expandedProperty());
+        defaultButton.managedProperty().bind(additionalOptionsPane.expandedProperty());
+
+        resetButton.visibleProperty().bind(additionalOptionsPane.expandedProperty());
+        resetButton.managedProperty().bind(additionalOptionsPane.expandedProperty());
+
+        defaultButton.setOnAction(e -> {
+            dilationWidthField.setText(String.valueOf(DEFAULT_DILATION_WIDTH));
+            dilationHeightField.setText(String.valueOf(DEFAULT_DILATION_HEIGHT));
+            erosionWidthField.setText(String.valueOf(DEFAULT_EROSION_WIDTH));
+            erosionHeightField.setText(String.valueOf(DEFAULT_EROSION_HEIGHT));
+            shapeBox.setValue(DEFAULT_KERNEL_SHAPE);
+        });
+
+        resetButton.setOnAction(e -> {
+            dilationWidthField.clear();
+            dilationHeightField.clear();
+            erosionWidthField.clear();
+            erosionHeightField.clear();
+            shapeBox.setValue(DEFAULT_KERNEL_SHAPE);
+        });
+
+        exitButton.setOnAction(e -> stage.close());
 
         runButton.setOnAction(e -> {
-            String outputPath = outputField.getText().trim();
-
-            int kernelWidth;
-            int kernelHeight;
+            int dilationWidth;
+            int dilationHeight;
+            int erosionWidth;
+            int erosionHeight;
 
             try {
-                kernelWidth = Integer.parseInt(widthField.getText().trim());
-                kernelHeight = Integer.parseInt(heightField.getText().trim());
+                dilationWidth = Integer.parseInt(dilationWidthField.getText().trim());
+                dilationHeight = Integer.parseInt(dilationHeightField.getText().trim());
+                erosionWidth = Integer.parseInt(erosionWidthField.getText().trim());
+                erosionHeight = Integer.parseInt(erosionHeightField.getText().trim());
             } catch (NumberFormatException ex) {
-                showMessage(Alert.AlertType.ERROR, "Input Error", "Kernel width and height must be integers.");
+                showMessage(Alert.AlertType.ERROR, "Input Error", "All width and height values must be integers.");
                 return;
             }
 
-            if (kernelWidth <= 0 || kernelHeight <= 0) {
-                showMessage(Alert.AlertType.ERROR, "Input Error", "Kernel width and height must be greater than 0.");
+            if (dilationWidth <= 0 || dilationHeight <= 0 || erosionWidth <= 0 || erosionHeight <= 0) {
+                showMessage(Alert.AlertType.ERROR, "Input Error", "All width and height values must be greater than 0.");
                 return;
             }
-
-            if (outputPath.isBlank()) {
-                showMessage(Alert.AlertType.ERROR, "Input Error", "Please choose an output folder.");
-                return;
-            }
-
-            PREFS.put(PREF_OUTPUT_DIR, outputPath);
 
             String kernelShape = shapeBox.getValue();
             boolean useSelectedAnnotations = selectedAnnotationButton.isSelected();
 
-            runSegmentation(qupath, outputPath, kernelWidth, kernelHeight, kernelShape, useSelectedAnnotations);
+            runSegmentation(
+                    qupath,
+                    dilationWidth,
+                    dilationHeight,
+                    erosionWidth,
+                    erosionHeight,
+                    kernelShape,
+                    useSelectedAnnotations
+            );
         });
 
-        grid.add(outputLabel, 0, 0);
-        grid.add(outputField, 1, 0);
-        grid.add(browseButton, 2, 0);
+        GridPane inputGrid = new GridPane();
+        inputGrid.setHgap(10);
+        inputGrid.setVgap(10);
+        inputGrid.add(inputModeLabel, 0, 0);
+        inputGrid.add(wholeImageButton, 1, 0);
+        inputGrid.add(selectedAnnotationButton, 1, 1);
 
-        grid.add(inputModeLabel, 0, 1);
-        grid.add(wholeImageButton, 1, 1);
-        grid.add(selectedAnnotationButton, 1, 2);
+        HBox buttonBar = new HBox(10, defaultButton, resetButton, runButton, exitButton);
 
-        grid.add(widthLabel, 0, 3);
-        grid.add(widthField, 1, 3);
+        VBox root = new VBox(14, inputGrid, additionalOptionsPane, buttonBar);
+        root.setPadding(new Insets(16));
 
-        grid.add(heightLabel, 0, 4);
-        grid.add(heightField, 1, 4);
-
-        grid.add(shapeLabel, 0, 5);
-        grid.add(shapeBox, 1, 5);
-
-        grid.add(runButton, 1, 6);
-
-        Scene scene = new Scene(grid, 520, 300);
+        Scene scene = new Scene(root, 480, 260);
         stage.setScene(scene);
         stage.show();
     }
@@ -229,9 +262,10 @@ public class VesselSegmentationExtension implements QuPathExtension {
     }
 
     private void runSegmentation(QuPathGUI qupath,
-                                 String outputPath,
-                                 int kernelWidth,
-                                 int kernelHeight,
+                                 int dilationWidth,
+                                 int dilationHeight,
+                                 int erosionWidth,
+                                 int erosionHeight,
                                  String kernelShape,
                                  boolean useSelectedAnnotations) {
 
@@ -252,14 +286,12 @@ public class VesselSegmentationExtension implements QuPathExtension {
                 return;
             }
 
-            File outputDir = new File(outputPath);
-            if (!outputDir.exists() && !outputDir.mkdirs()) {
-                showMessage(Alert.AlertType.ERROR, "Output Error", "Could not create output folder:\n" + outputPath);
-                return;
-            }
+            File outputDir = Files.createTempDirectory("qupath_vessel_output").toFile();
+            outputDir.deleteOnExit();
 
             ImageServer<BufferedImage> server = qupath.getImageData().getServer();
             File tempInputDir = Files.createTempDirectory("qupath_vessel_input").toFile();
+            tempInputDir.deleteOnExit();
 
             List<ExportTask> exportTasks = new ArrayList<>();
 
@@ -343,9 +375,11 @@ public class VesselSegmentationExtension implements QuPathExtension {
                     pythonExec,
                     extractedScript.getAbsolutePath(),
                     tempInputDir.getAbsolutePath(),
-                    outputPath,
-                    "--dilation-kernel-width", String.valueOf(kernelWidth),
-                    "--dilation-kernel-height", String.valueOf(kernelHeight),
+                    outputDir.getAbsolutePath(),
+                    "--dilation-kernel-width", String.valueOf(dilationWidth),
+                    "--dilation-kernel-height", String.valueOf(dilationHeight),
+                    "--erosion-kernel-width", String.valueOf(erosionWidth),
+                    "--erosion-kernel-height", String.valueOf(erosionHeight),
                     "--dilation-kernel-shape", kernelShape
             );
 
@@ -379,7 +413,7 @@ public class VesselSegmentationExtension implements QuPathExtension {
             int totalAdded = 0;
 
             for (ExportTask task : exportTasks) {
-                File contourCsv = new File(new File(outputPath, task.baseName), "vessel_contours.csv");
+                File contourCsv = new File(new File(outputDir, task.baseName), "vessel_contours.csv");
 
                 if (!contourCsv.exists()) {
                     System.out.println("Skipping missing contour CSV: " + contourCsv.getAbsolutePath());
@@ -407,8 +441,7 @@ public class VesselSegmentationExtension implements QuPathExtension {
             showMessage(
                     Alert.AlertType.INFORMATION,
                     "Segmentation Finished",
-                    "Segmentation completed successfully.\n\nObjects added to QuPath: " + totalAdded +
-                            "\nResults exported to:\n" + outputPath
+                    "Segmentation completed successfully.\n\nObjects added to QuPath: " + totalAdded
             );
 
         } catch (Exception ex) {
