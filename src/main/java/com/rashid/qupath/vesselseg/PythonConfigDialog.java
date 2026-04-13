@@ -10,8 +10,8 @@ import javafx.stage.Modality;
 import javafx.stage.Stage;
 
 import java.io.BufferedReader;
-import java.io.InputStreamReader;
 import java.io.File;
+import java.io.InputStreamReader;
 import java.util.prefs.Preferences;
 
 public class PythonConfigDialog {
@@ -49,10 +49,10 @@ public class PythonConfigDialog {
         TextArea infoArea = new TextArea(
                 "Required Python packages:\n\n" +
                 "opencv-python   numpy   scikit-image   pandas\n\n" +
-                "Install command:\n" +
-                "python -m pip install opencv-python numpy scikit-image pandas\n\n" +
-                "If using conda:\n" +
-                "conda install -c conda-forge opencv numpy scikit-image pandas"
+                "Install dependencies will automatically:\n" +
+                "1. create a VeSpA virtual environment\n" +
+                "2. install required packages into it\n" +
+                "3. switch VeSpA to use that environment\n"
         );
         infoArea.setEditable(false);
         infoArea.setWrapText(true);
@@ -168,16 +168,73 @@ public class PythonConfigDialog {
     }
 
     private void installDependencies(Label statusLabel) {
-        String python = pythonField.getText().trim();
+        String basePython = pythonField.getText().trim();
 
-        if (python.isBlank()) {
+        if (basePython.isBlank()) {
             showAlert(Alert.AlertType.ERROR, "Install dependencies", "Please select a Python executable first.");
             return;
         }
 
+        File f = new File(basePython);
+        if (!f.exists()) {
+            showAlert(Alert.AlertType.ERROR, "Install dependencies", "Selected Python executable does not exist.");
+            return;
+        }
+
         try {
-            ProcessBuilder pb = new ProcessBuilder(
-                    python,
+            File venvDir = getDefaultVenvDir();
+            String venvPython = getVenvPythonPath(venvDir);
+
+            // Step 1: create virtual environment
+            statusLabel.setText("Creating VeSpA virtual environment...");
+            statusLabel.setStyle("-fx-text-fill: darkorange;");
+
+            ProcessBuilder createVenv = new ProcessBuilder(
+                    basePython,
+                    "-m",
+                    "venv",
+                    venvDir.getAbsolutePath()
+            );
+            createVenv.redirectErrorStream(true);
+            Process p1 = createVenv.start();
+            String out1 = readProcessOutput(p1);
+            int code1 = p1.waitFor();
+
+            if (code1 != 0) {
+                showAlert(Alert.AlertType.ERROR, "Install dependencies",
+                        "Failed to create virtual environment:\n\n" + out1);
+                return;
+            }
+
+            // Step 2: upgrade pip in the virtual environment
+            statusLabel.setText("Upgrading pip in VeSpA environment...");
+            statusLabel.setStyle("-fx-text-fill: darkorange;");
+
+            ProcessBuilder upgradePip = new ProcessBuilder(
+                    venvPython,
+                    "-m",
+                    "pip",
+                    "install",
+                    "--upgrade",
+                    "pip"
+            );
+            upgradePip.redirectErrorStream(true);
+            Process p2 = upgradePip.start();
+            String out2 = readProcessOutput(p2);
+            int code2 = p2.waitFor();
+
+            if (code2 != 0) {
+                showAlert(Alert.AlertType.ERROR, "Install dependencies",
+                        "Failed to upgrade pip in VeSpA environment:\n\n" + out2);
+                return;
+            }
+
+            // Step 3: install required packages into the virtual environment
+            statusLabel.setText("Installing required packages into VeSpA environment...");
+            statusLabel.setStyle("-fx-text-fill: darkorange;");
+
+            ProcessBuilder installPkgs = new ProcessBuilder(
+                    venvPython,
                     "-m",
                     "pip",
                     "install",
@@ -186,25 +243,48 @@ public class PythonConfigDialog {
                     "scikit-image",
                     "pandas"
             );
-            pb.redirectErrorStream(true);
-            Process process = pb.start();
+            installPkgs.redirectErrorStream(true);
+            Process p3 = installPkgs.start();
+            String out3 = readProcessOutput(p3);
+            int code3 = p3.waitFor();
 
-            String output;
-            try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
-                output = reader.lines().reduce("", (a, b) -> a + b + "\n");
+            if (code3 != 0) {
+                showAlert(Alert.AlertType.ERROR, "Install dependencies",
+                        "Failed to install required packages:\n\n" + out3);
+                return;
             }
 
-            int code = process.waitFor();
+            // Step 4: switch VeSpA to use the new environment automatically
+            pythonField.setText(venvPython);
+            PREFS.put(PREF_PYTHON_EXEC, venvPython);
 
-            if (code == 0) {
-                statusLabel.setText("✔ Dependencies installed successfully.");
-                statusLabel.setStyle("-fx-text-fill: green;");
-            } else {
-                showAlert(Alert.AlertType.ERROR, "Install dependencies", output);
-            }
+            statusLabel.setText("✔ VeSpA environment created and dependencies installed successfully.");
+            statusLabel.setStyle("-fx-text-fill: green;");
+
+            showAlert(Alert.AlertType.INFORMATION, "Install dependencies",
+                    "VeSpA environment created successfully.\n\nPython now points to:\n" + venvPython);
 
         } catch (Exception ex) {
             showAlert(Alert.AlertType.ERROR, "Install dependencies", ex.getMessage());
+        }
+    }
+
+    private File getDefaultVenvDir() {
+        return new File(System.getProperty("user.home"), ".vespa-env");
+    }
+
+    private String getVenvPythonPath(File venvDir) {
+        boolean isWindows = System.getProperty("os.name").toLowerCase().contains("win");
+        if (isWindows) {
+            return new File(venvDir, "Scripts/python.exe").getAbsolutePath();
+        } else {
+            return new File(venvDir, "bin/python").getAbsolutePath();
+        }
+    }
+
+    private String readProcessOutput(Process process) throws Exception {
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
+            return reader.lines().reduce("", (a, b) -> a + b + "\n");
         }
     }
 
@@ -230,7 +310,7 @@ public class PythonConfigDialog {
     private void updateStatus(Label statusLabel) {
         String python = pythonField.getText().trim();
         if (!python.isBlank() && new File(python).exists()) {
-            statusLabel.setText("✔ Python executable detected.");
+            statusLabel.setText("✔ Valid Python executable.");
             statusLabel.setStyle("-fx-text-fill: green;");
         } else {
             statusLabel.setText("No Python executable configured.");
