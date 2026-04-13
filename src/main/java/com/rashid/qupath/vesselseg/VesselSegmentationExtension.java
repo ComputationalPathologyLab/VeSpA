@@ -26,6 +26,8 @@ import javafx.scene.control.TextArea;
 import javafx.scene.control.TextField;
 import javafx.scene.control.TitledPane;
 import javafx.scene.control.ToggleGroup;
+import javafx.scene.image.Image;
+import javafx.scene.image.ImageView;
 import javafx.scene.layout.GridPane;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.VBox;
@@ -55,6 +57,7 @@ public class VesselSegmentationExtension implements QuPathExtension {
 
     private static final String PREF_PYTHON_EXEC = "pythonExec";
     private static final String PYTHON_SCRIPT_RESOURCE = "/scripts/vessels_segmentation.py";
+    private static final String LOGO_RESOURCE = "/images/vespa_logo.png";
 
     private static final int DEFAULT_DILATION_WIDTH = 21;
     private static final int DEFAULT_DILATION_HEIGHT = 21;
@@ -62,10 +65,9 @@ public class VesselSegmentationExtension implements QuPathExtension {
     private static final int DEFAULT_EROSION_HEIGHT = 3;
     private static final String DEFAULT_KERNEL_SHAPE = "ELLIPSE";
 
-    // InstanSeg-like behavior: fixed width, dynamic height
-    private static final double WINDOW_WIDTH = 500;
-    private static final double COLLAPSED_HEIGHT = 220;
-    private static final double EXPANDED_HEIGHT = 410;
+    private static final double WINDOW_WIDTH = 520;
+    private static final double COLLAPSED_HEIGHT = 320;
+    private static final double EXPANDED_HEIGHT = 520;
 
     private static class ExportTask {
         String baseName;
@@ -109,7 +111,9 @@ public class VesselSegmentationExtension implements QuPathExtension {
 
     private void openWindow(QuPathGUI qupath) {
         Stage stage = new Stage();
-        stage.setTitle("Vessel Segmentation");
+        stage.setTitle("Vessel Spatial Analysis");
+
+        ImageView logoView = createLogoView();
 
         Label inputModeLabel = new Label("Input region:");
         ToggleGroup inputModeGroup = new ToggleGroup();
@@ -235,13 +239,13 @@ public class VesselSegmentationExtension implements QuPathExtension {
         HBox buttonBar = new HBox(8, defaultButton, resetButton, runButton, exitButton);
         buttonBar.setAlignment(Pos.CENTER_LEFT);
 
-        VBox root = new VBox(12, inputGrid, additionalOptionsPane, buttonBar);
+        VBox root = new VBox(12, logoView, inputGrid, additionalOptionsPane, buttonBar);
         root.setPadding(new Insets(14));
+        root.setAlignment(Pos.TOP_CENTER);
 
         Scene scene = new Scene(root, WINDOW_WIDTH, COLLAPSED_HEIGHT);
         stage.setScene(scene);
 
-        // Fixed width, dynamic height
         stage.setResizable(false);
         stage.setWidth(WINDOW_WIDTH);
         stage.setMinWidth(WINDOW_WIDTH);
@@ -264,6 +268,22 @@ public class VesselSegmentationExtension implements QuPathExtension {
         });
 
         stage.show();
+    }
+
+    private ImageView createLogoView() {
+        try (InputStream is = getClass().getResourceAsStream(LOGO_RESOURCE)) {
+            if (is == null) {
+                return new ImageView();
+            }
+            Image image = new Image(is);
+            ImageView imageView = new ImageView(image);
+            imageView.setPreserveRatio(true);
+            imageView.setFitWidth(260);
+            imageView.setSmooth(true);
+            return imageView;
+        } catch (Exception e) {
+            return new ImageView();
+        }
     }
 
     private String ensurePythonConfigured() {
