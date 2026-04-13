@@ -14,6 +14,7 @@ import qupath.lib.roi.interfaces.ROI;
 
 import javafx.collections.FXCollections;
 import javafx.geometry.Insets;
+import javafx.geometry.Pos;
 import javafx.scene.Scene;
 import javafx.scene.control.Alert;
 import javafx.scene.control.Button;
@@ -60,6 +61,11 @@ public class VesselSegmentationExtension implements QuPathExtension {
     private static final int DEFAULT_EROSION_WIDTH = 3;
     private static final int DEFAULT_EROSION_HEIGHT = 3;
     private static final String DEFAULT_KERNEL_SHAPE = "ELLIPSE";
+
+    // InstanSeg-like behavior: fixed width, dynamic height
+    private static final double WINDOW_WIDTH = 500;
+    private static final double COLLAPSED_HEIGHT = 220;
+    private static final double EXPANDED_HEIGHT = 410;
 
     private static class ExportTask {
         String baseName;
@@ -120,10 +126,16 @@ public class VesselSegmentationExtension implements QuPathExtension {
         TextField erosionWidthField = new TextField(String.valueOf(DEFAULT_EROSION_WIDTH));
         TextField erosionHeightField = new TextField(String.valueOf(DEFAULT_EROSION_HEIGHT));
 
+        dilationWidthField.setPrefWidth(180);
+        dilationHeightField.setPrefWidth(180);
+        erosionWidthField.setPrefWidth(180);
+        erosionHeightField.setPrefWidth(180);
+
         ComboBox<String> shapeBox = new ComboBox<>(
                 FXCollections.observableArrayList("ELLIPSE", "RECT", "CROSS")
         );
         shapeBox.setValue(DEFAULT_KERNEL_SHAPE);
+        shapeBox.setPrefWidth(180);
 
         GridPane optionsGrid = new GridPane();
         optionsGrid.setHgap(12);
@@ -147,6 +159,7 @@ public class VesselSegmentationExtension implements QuPathExtension {
 
         TitledPane additionalOptionsPane = new TitledPane("Additional options", optionsGrid);
         additionalOptionsPane.setExpanded(false);
+        additionalOptionsPane.setAnimated(false);
 
         Button defaultButton = new Button("Default");
         Button resetButton = new Button("Reset");
@@ -219,13 +232,37 @@ public class VesselSegmentationExtension implements QuPathExtension {
         inputGrid.add(wholeImageButton, 1, 0);
         inputGrid.add(selectedAnnotationButton, 1, 1);
 
-        HBox buttonBar = new HBox(10, defaultButton, resetButton, runButton, exitButton);
+        HBox buttonBar = new HBox(8, defaultButton, resetButton, runButton, exitButton);
+        buttonBar.setAlignment(Pos.CENTER_LEFT);
 
-        VBox root = new VBox(14, inputGrid, additionalOptionsPane, buttonBar);
-        root.setPadding(new Insets(16));
+        VBox root = new VBox(12, inputGrid, additionalOptionsPane, buttonBar);
+        root.setPadding(new Insets(14));
 
-        Scene scene = new Scene(root, 480, 260);
+        Scene scene = new Scene(root, WINDOW_WIDTH, COLLAPSED_HEIGHT);
         stage.setScene(scene);
+
+        // Fixed width, dynamic height
+        stage.setResizable(false);
+        stage.setWidth(WINDOW_WIDTH);
+        stage.setMinWidth(WINDOW_WIDTH);
+        stage.setMaxWidth(WINDOW_WIDTH);
+
+        stage.setHeight(COLLAPSED_HEIGHT);
+        stage.setMinHeight(COLLAPSED_HEIGHT);
+        stage.setMaxHeight(EXPANDED_HEIGHT);
+
+        stage.setMaximized(false);
+        stage.centerOnScreen();
+
+        additionalOptionsPane.expandedProperty().addListener((obs, oldVal, expanded) -> {
+            if (expanded) {
+                stage.setHeight(EXPANDED_HEIGHT);
+            } else {
+                stage.setHeight(COLLAPSED_HEIGHT);
+            }
+            stage.centerOnScreen();
+        });
+
         stage.show();
     }
 
