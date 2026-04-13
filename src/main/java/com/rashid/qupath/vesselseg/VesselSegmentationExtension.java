@@ -31,6 +31,7 @@ import javafx.scene.image.ImageView;
 import javafx.scene.layout.GridPane;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
+import javafx.scene.layout.Region;
 import javafx.scene.layout.VBox;
 import javafx.stage.Stage;
 
@@ -66,9 +67,9 @@ public class VesselSegmentationExtension implements QuPathExtension {
     private static final int DEFAULT_EROSION_HEIGHT = 3;
     private static final String DEFAULT_KERNEL_SHAPE = "ELLIPSE";
 
-    private static final double WINDOW_WIDTH = 620;
-    private static final double COLLAPSED_HEIGHT = 260;
-    private static final double EXPANDED_HEIGHT = 430;
+    private static final double WINDOW_WIDTH = 560;
+    private static final double COLLAPSED_HEIGHT = 250;
+    private static final double EXPANDED_HEIGHT = 390;
 
     private static class ExportTask {
         String baseName;
@@ -131,21 +132,21 @@ public class VesselSegmentationExtension implements QuPathExtension {
         TextField erosionWidthField = new TextField(String.valueOf(DEFAULT_EROSION_WIDTH));
         TextField erosionHeightField = new TextField(String.valueOf(DEFAULT_EROSION_HEIGHT));
 
-        dilationWidthField.setPrefWidth(160);
-        dilationHeightField.setPrefWidth(160);
-        erosionWidthField.setPrefWidth(160);
-        erosionHeightField.setPrefWidth(160);
+        dilationWidthField.setPrefWidth(150);
+        dilationHeightField.setPrefWidth(150);
+        erosionWidthField.setPrefWidth(150);
+        erosionHeightField.setPrefWidth(150);
 
         ComboBox<String> shapeBox = new ComboBox<>(
                 FXCollections.observableArrayList("ELLIPSE", "RECT", "CROSS")
         );
         shapeBox.setValue(DEFAULT_KERNEL_SHAPE);
-        shapeBox.setPrefWidth(160);
+        shapeBox.setPrefWidth(150);
 
         GridPane optionsGrid = new GridPane();
         optionsGrid.setHgap(10);
         optionsGrid.setVgap(10);
-        optionsGrid.setPadding(new Insets(8, 0, 0, 0));
+        optionsGrid.setPadding(new Insets(10, 10, 10, 10));
 
         optionsGrid.add(new Label("Kernel width:"), 0, 0);
         optionsGrid.add(dilationWidthField, 1, 0);
@@ -237,26 +238,50 @@ public class VesselSegmentationExtension implements QuPathExtension {
         inputGrid.add(wholeImageButton, 1, 0);
         inputGrid.add(selectedAnnotationButton, 1, 1);
 
-        VBox rightPanel = new VBox(12, inputGrid, additionalOptionsPane);
+        VBox inputPanel = new VBox(8, inputGrid);
+        inputPanel.setPadding(new Insets(14, 14, 8, 14));
+        inputPanel.setStyle(
+                "-fx-background-color: #d3d3d3;" +
+                "-fx-border-color: #b0b0b0;" +
+                "-fx-border-width: 1;"
+        );
+
+        VBox optionsPanel = new VBox(additionalOptionsPane);
+        optionsPanel.setStyle(
+                "-fx-background-color: #d3d3d3;" +
+                "-fx-border-color: #b0b0b0;" +
+                "-fx-border-width: 1;"
+        );
+
+        VBox rightPanel = new VBox(12, inputPanel, optionsPanel);
         rightPanel.setAlignment(Pos.TOP_LEFT);
         rightPanel.setFillWidth(true);
-        VBox.setVgrow(additionalOptionsPane, Priority.NEVER);
 
-        VBox leftPanel = new VBox(8, logoView);
+        VBox leftPanel = new VBox(10, logoView);
         leftPanel.setAlignment(Pos.TOP_CENTER);
-        leftPanel.setPadding(new Insets(0, 8, 0, 0));
-        leftPanel.setPrefWidth(170);
-        leftPanel.setMinWidth(170);
-        leftPanel.setMaxWidth(170);
+        leftPanel.setPadding(new Insets(22, 4, 0, 4));
+        leftPanel.setPrefWidth(135);
+        leftPanel.setMinWidth(135);
+        leftPanel.setMaxWidth(135);
 
-        HBox topPanels = new HBox(12, leftPanel, rightPanel);
+        HBox topPanels = new HBox(14, leftPanel, rightPanel);
         topPanels.setAlignment(Pos.TOP_LEFT);
 
-        HBox buttonBar = new HBox(8, defaultButton, resetButton, runButton, exitButton);
-        buttonBar.setAlignment(Pos.CENTER_LEFT);
+        Region spacerLeft = new Region();
+        Region spacerRight = new Region();
+        HBox.setHgrow(spacerLeft, Priority.ALWAYS);
+        HBox.setHgrow(spacerRight, Priority.ALWAYS);
+
+        HBox actionButtons = new HBox(10, runButton, exitButton);
+        actionButtons.setAlignment(Pos.CENTER);
+
+        HBox buttonBar = new HBox(10, defaultButton, resetButton, spacerLeft, actionButtons, spacerRight);
+        buttonBar.setAlignment(Pos.CENTER);
+        buttonBar.setPadding(new Insets(4, 0, 0, 0));
 
         VBox root = new VBox(12, topPanels, buttonBar);
         root.setPadding(new Insets(14));
+        root.setStyle("-fx-background-color: #e6e6e6;");
 
         Scene scene = new Scene(root, WINDOW_WIDTH, COLLAPSED_HEIGHT);
         stage.setScene(scene);
@@ -296,7 +321,7 @@ public class VesselSegmentationExtension implements QuPathExtension {
             Image image = new Image(is);
             ImageView imageView = new ImageView(image);
             imageView.setPreserveRatio(true);
-            imageView.setFitWidth(150);
+            imageView.setFitWidth(110);
             imageView.setSmooth(true);
             return imageView;
 
