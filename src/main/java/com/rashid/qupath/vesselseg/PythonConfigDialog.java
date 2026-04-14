@@ -33,10 +33,10 @@ public class PythonConfigDialog {
     private static final String PREF_PYTHON_EXEC = "pythonExec";
 
     // Locked versions for reproducibility across users/platforms
-    private static final String OPENCV_VERSION = "4.10.0.84";
-    private static final String NUMPY_VERSION = "1.26.4";
-    private static final String SCIKIT_IMAGE_VERSION = "0.24.0";
-    private static final String PANDAS_VERSION = "2.2.2";
+    private static final String OPENCV_SPEC = "opencv-python>=4.10,<5";
+    private static final String NUMPY_SPEC = "numpy>=1.26,<3";
+    private static final String SCIKIT_IMAGE_SPEC = "scikit-image>=0.24,<1";
+    private static final String PANDAS_SPEC = "pandas>=2.2,<3";
 
     private final Stage stage;
     private final TextField pythonField;
@@ -81,16 +81,17 @@ public class PythonConfigDialog {
         progressBar.setVisible(false);
 
         String infoText =
-                "Required Python packages (locked versions):\n\n" +
-                "opencv-python==" + OPENCV_VERSION + "\n" +
-                "numpy==" + NUMPY_VERSION + "\n" +
-                "scikit-image==" + SCIKIT_IMAGE_VERSION + "\n" +
-                "pandas==" + PANDAS_VERSION + "\n\n" +
-                "Install dependencies will automatically:\n" +
-                "1. create or reuse a dedicated VeSpA virtual environment\n" +
-                "2. upgrade pip inside that environment\n" +
-                "3. install the locked package versions\n" +
-                "4. switch VeSpA to use that environment\n";
+            "Required Python packages:\n\n" +
+            OPENCV_SPEC + "\n" +
+            NUMPY_SPEC + "\n" +
+            SCIKIT_IMAGE_SPEC + "\n" +
+            PANDAS_SPEC + "\n\n" +
+            "Install dependencies will automatically:\n" +
+            "1. create or reuse a dedicated VeSpA virtual environment\n" +
+            "2. upgrade pip inside that environment\n" +
+            "3. install compatible package versions\n" +
+            "4. validate the environment\n" +
+            "5. switch VeSpA to use that environment\n";
 
         TextArea infoArea = new TextArea(infoText);
         infoArea.setEditable(false);
