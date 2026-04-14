@@ -32,7 +32,7 @@ public class PythonConfigDialog {
 
     private static final String PREF_PYTHON_EXEC = "pythonExec";
 
-    // Locked versions for reproducibility across users/platforms
+    // Compatible version ranges instead of exact pins
     private static final String OPENCV_SPEC = "opencv-python>=4.10,<5";
     private static final String NUMPY_SPEC = "numpy>=1.26,<3";
     private static final String SCIKIT_IMAGE_SPEC = "scikit-image>=0.24,<1";
@@ -81,17 +81,17 @@ public class PythonConfigDialog {
         progressBar.setVisible(false);
 
         String infoText =
-            "Required Python packages:\n\n" +
-            OPENCV_SPEC + "\n" +
-            NUMPY_SPEC + "\n" +
-            SCIKIT_IMAGE_SPEC + "\n" +
-            PANDAS_SPEC + "\n\n" +
-            "Install dependencies will automatically:\n" +
-            "1. create or reuse a dedicated VeSpA virtual environment\n" +
-            "2. upgrade pip inside that environment\n" +
-            "3. install compatible package versions\n" +
-            "4. validate the environment\n" +
-            "5. switch VeSpA to use that environment\n";
+                "Required Python packages (range mode build 2026):\n\n" +
+                OPENCV_SPEC + "\n" +
+                NUMPY_SPEC + "\n" +
+                SCIKIT_IMAGE_SPEC + "\n" +
+                PANDAS_SPEC + "\n\n" +
+                "Install dependencies will automatically:\n" +
+                "1. create or reuse a dedicated VeSpA virtual environment\n" +
+                "2. upgrade pip inside that environment\n" +
+                "3. install compatible package versions\n" +
+                "4. validate the environment\n" +
+                "5. switch VeSpA to use that environment\n";
 
         TextArea infoArea = new TextArea(infoText);
         infoArea.setEditable(false);
@@ -177,7 +177,11 @@ public class PythonConfigDialog {
                 "/usr/local/bin/python3",
                 System.getProperty("user.home") + "/miniconda3/bin/python",
                 System.getProperty("user.home") + "/anaconda3/bin/python",
-                System.getProperty("user.home") + "/.pyenv/shims/python3"
+                System.getProperty("user.home") + "/.pyenv/shims/python3",
+                "C:\\\\Users\\\\Administrator\\\\AppData\\\\Local\\\\Programs\\\\Python\\\\Python313\\\\python.exe",
+                "C:\\\\Python313\\\\python.exe",
+                "C:\\\\Python312\\\\python.exe",
+                "C:\\\\Python311\\\\python.exe"
         };
 
         for (String path : candidates) {
@@ -342,16 +346,16 @@ public class PythonConfigDialog {
 
                 updateProgress(0.60, 1.0);
 
-                appendLog("Installing locked dependency versions...");
+                appendLog("Installing compatible dependency versions... [VeSpA build 2026-range-mode]");
                 List<String> installCmd = new ArrayList<>();
                 installCmd.add(venvPython);
                 installCmd.add("-m");
                 installCmd.add("pip");
                 installCmd.add("install");
-                installCmd.add("opencv-python==" + OPENCV_VERSION);
-                installCmd.add("numpy==" + NUMPY_VERSION);
-                installCmd.add("scikit-image==" + SCIKIT_IMAGE_VERSION);
-                installCmd.add("pandas==" + PANDAS_VERSION);
+                installCmd.add(OPENCV_SPEC);
+                installCmd.add(NUMPY_SPEC);
+                installCmd.add(SCIKIT_IMAGE_SPEC);
+                installCmd.add(PANDAS_SPEC);
 
                 ProcessResult installResult = runCommand(installCmd);
                 appendLog(installResult.output);
