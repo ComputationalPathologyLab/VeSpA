@@ -22,7 +22,9 @@ import java.io.BufferedReader;
 import java.io.File;
 import java.io.InputStreamReader;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.prefs.Preferences;
 
 public class PythonConfigDialog {
@@ -81,7 +83,7 @@ public class PythonConfigDialog {
         progressBar.setVisible(false);
 
         String infoText =
-                "Required Python packages (range mode build 2026):\n\n" +
+                "Required Python packages:\n\n" +
                 OPENCV_SPEC + "\n" +
                 NUMPY_SPEC + "\n" +
                 SCIKIT_IMAGE_SPEC + "\n" +
@@ -171,30 +173,194 @@ public class PythonConfigDialog {
     }
 
     private void autoDetectPython() {
-        String[] candidates = {
-                "/usr/bin/python3",
-                "/opt/homebrew/bin/python3",
-                "/usr/local/bin/python3",
-                System.getProperty("user.home") + "/miniconda3/bin/python",
-                System.getProperty("user.home") + "/anaconda3/bin/python",
-                System.getProperty("user.home") + "/.pyenv/shims/python3",
-                "C:\\\\Users\\\\Administrator\\\\AppData\\\\Local\\\\Programs\\\\Python\\\\Python313\\\\python.exe",
-                "C:\\\\Python313\\\\python.exe",
-                "C:\\\\Python312\\\\python.exe",
-                "C:\\\\Python311\\\\python.exe"
+        Task<Void> task = new Task<>() {
+            @Override
+            protected Void call() {
+                setBusy(true, "Searching for Python...");
+                appendLog("Searching for Python in common locations...");
+
+                Set<String> candidates = new LinkedHashSet<>();
+
+                // macOS / Linux common locations
+                candidates.add("/usr/bin/python3");
+                candidates.add("/opt/homebrew/bin/python3");
+                candidates.add("/usr/local/bin/python3");
+                candidates.add(System.getProperty("user.home") + "/miniconda3/bin/python");
+                candidates.add(System.getProperty("user.home") + "/anaconda3/bin/python");
+                candidates.add(System.getProperty("user.home") + "/.pyenv/shims/python3");
+
+                // Windows common fixed locations
+                String userHome = System.getProperty("user.home");
+                candidates.add(userHome + "\\AppData\\Local\\Programs\\Python\\Python313\\python.exe");
+                candidates.add(userHome + "\\AppData\\Local\\Programs\\Python\\Python312\\python.exe");
+                candidates.add(userHome + "\\AppData\\Local\\Programs\\Python\\Python311\\python.exe");
+
+                // Windows: try Python launcher
+                candidates.addAll(findPythonViaPyLauncher());
+
+                // Windows: scan common install folders
+                candidates.addAll(findWindowsPythonCandidates());
+
+                // Windows: fallback recursive scan of C:\
+                candidates.addAll(findPythonAnywhereInCDrive());
+
+                for (String path : candidates) {
+                    File f = new File(path);
+                    if (f.exists() && f.isFile()) {
+                        Platform.runLater(() -> {
+                            pythonField.setText(f.getAbsolutePath());
+                            updateStatus("Auto-detected Python executable.", "green");
+                            appendLog("Auto-detected Python: " + f.getAbsolutePath());
+                            setBusy(false, null);
+                        });
+                        return null;
+                    }
+                }
+
+                Platform.runLater(() -> {
+                    setBusy(false, null);
+                    showAlert(Alert.AlertType.WARNING, "Auto-detect", "No Python executable found.");
+                });
+
+                return null;
+            }
         };
 
-        for (String path : candidates) {
-            File f = new File(path);
-            if (f.exists()) {
-                pythonField.setText(f.getAbsolutePath());
-                updateStatus("Auto-detected Python executable.", "green");
-                appendLog("Auto-detected Python: " + f.getAbsolutePath());
-                return;
+        new Thread(task, "vespa-auto-detect-python").start();
+    }
+
+    private List<String> findPythonViaPyLauncher() {
+        List<String> found = new ArrayList<>();
+
+        if (!System.getProperty("os.name").toLowerCase().contains("win")) {
+            return found;
+        }
+
+        try {
+            ProcessResult result = runCommand(List.of("py", "-0p"));
+            appendLog("Trying Windows Python launcher (py -0p)...");
+            appendLog(result.output);
+
+            if (result.exitCode == 0) {
+                String[] lines = result.output.split("\\R");
+                for (String line : lines) {
+                    line = line.trim();
+                    if (line.contains(":")) {
+                        int idx = line.indexOf(":");
+                        String possiblePath = line.substring(idx + 1).trim();
+                        if (possiblePath.toLowerCase().endsWith("python.exe")) {
+                            File f = new File(possiblePath);
+                            if (f.exists()) {
+                                found.add(f.getAbsolutePath());
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (Exception e) {
+            appendLog("Windows Python launcher not available.");
+        }
+
+        return found;
+    }
+
+    private List<String> findWindowsPythonCandidates() {
+        List<String> found = new ArrayList<>();
+
+        if (!System.getProperty("os.name").toLowerCase().contains("win")) {
+            return found;
+        }
+
+        appendLog("Scanning common Windows Python install folders...");
+
+        String userHome = System.getProperty("user.home");
+
+        File localPrograms = new File(userHome, "AppData\\Local\\Programs\\Python");
+        collectPythonExecutables(localPrograms, found);
+
+        File rootDrive = new File("C:\\");
+        File[] rootDirs = rootDrive.listFiles();
+        if (rootDirs != null) {
+            for (File dir : rootDirs) {
+                if (dir.isDirectory() && dir.getName().matches("Python\\d+")) {
+                    File exe = new File(dir, "python.exe");
+                    if (exe.exists()) {
+                        found.add(exe.getAbsolutePath());
+                    }
+                }
             }
         }
 
-        showAlert(Alert.AlertType.WARNING, "Auto-detect", "No Python executable found in common locations.");
+        return found;
+    }
+
+    private void collectPythonExecutables(File parentDir, List<String> found) {
+        if (parentDir == null || !parentDir.exists() || !parentDir.isDirectory()) {
+            return;
+        }
+
+        File[] dirs = parentDir.listFiles();
+        if (dirs == null) {
+            return;
+        }
+
+        for (File dir : dirs) {
+            if (dir.isDirectory() && dir.getName().matches("Python\\d+")) {
+                File exe = new File(dir, "python.exe");
+                if (exe.exists()) {
+                    found.add(exe.getAbsolutePath());
+                }
+            }
+        }
+    }
+
+    private List<String> findPythonAnywhereInCDrive() {
+        List<String> found = new ArrayList<>();
+
+        if (!System.getProperty("os.name").toLowerCase().contains("win")) {
+            return found;
+        }
+
+        appendLog("Scanning C:\\ for python.exe (fallback scan)...");
+
+        File cDrive = new File("C:\\");
+        scanForPythonRecursively(cDrive, found, 6);
+
+        return found;
+    }
+
+    private void scanForPythonRecursively(File dir, List<String> found, int maxDepth) {
+        if (dir == null || maxDepth < 0 || !dir.exists() || !dir.isDirectory()) {
+            return;
+        }
+
+        File[] files = dir.listFiles();
+        if (files == null) {
+            return;
+        }
+
+        for (File file : files) {
+            try {
+                if (file.isDirectory()) {
+                    String name = file.getName().toLowerCase();
+
+                    if (name.equals("windows") ||
+                            name.equals("program files") ||
+                            name.equals("program files (x86)") ||
+                            name.equals("programdata") ||
+                            name.equals("$recycle.bin") ||
+                            name.equals("system volume information")) {
+                        continue;
+                    }
+
+                    scanForPythonRecursively(file, found, maxDepth - 1);
+
+                } else if (file.isFile() && file.getName().equalsIgnoreCase("python.exe")) {
+                    found.add(file.getAbsolutePath());
+                }
+            } catch (Exception ignored) {
+            }
+        }
     }
 
     private void runTestPython() {
@@ -346,7 +512,7 @@ public class PythonConfigDialog {
 
                 updateProgress(0.60, 1.0);
 
-                appendLog("Installing compatible dependency versions... [VeSpA build 2026-range-mode]");
+                appendLog("Installing compatible dependency versions...");
                 List<String> installCmd = new ArrayList<>();
                 installCmd.add(venvPython);
                 installCmd.add("-m");
