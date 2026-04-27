@@ -94,6 +94,26 @@ public class VesselSegmentationExtension implements QuPathExtension {
         }
     }
 
+    private static class VesselMeasurement {
+        double area;
+        double axisMajorLength;
+        double axisMinorLength;
+        double eccentricity;
+        double orientation;
+
+        VesselMeasurement(double area,
+                          double axisMajorLength,
+                          double axisMinorLength,
+                          double eccentricity,
+                          double orientation) {
+            this.area = area;
+            this.axisMajorLength = axisMajorLength;
+            this.axisMinorLength = axisMinorLength;
+            this.eccentricity = eccentricity;
+            this.orientation = orientation;
+        }
+    }
+
     @Override
     public void installExtension(QuPathGUI qupath) {
         var menu = qupath.getMenu("Extensions > Vessel Segmentation", true);
@@ -515,7 +535,9 @@ public class VesselSegmentationExtension implements QuPathExtension {
             int totalAdded = 0;
 
             for (ExportTask task : exportTasks) {
-                File contourCsv = new File(new File(outputDir, task.baseName), "vessel_contours.csv");
+                File imageOutputDir = new File(outputDir, task.baseName);
+                File contourCsv = new File(imageOutputDir, "vessel_contours.csv");
+                File measurementCsv = new File(imageOutputDir, task.baseName + "_measurements.csv");
 
                 if (!contourCsv.exists()) {
                     System.out.println("Skipping missing contour CSV: " + contourCsv.getAbsolutePath());
@@ -525,6 +547,7 @@ public class VesselSegmentationExtension implements QuPathExtension {
                 totalAdded += importObjectsFromCsv(
                         qupath,
                         contourCsv,
+                        measurementCsv,
                         task.xOffset,
                         task.yOffset,
                         task.plane,
@@ -554,6 +577,7 @@ public class VesselSegmentationExtension implements QuPathExtension {
 
     private int importObjectsFromCsv(QuPathGUI qupath,
                                      File contourCsv,
+                                     File measurementCsv,
                                      double xOffset,
                                      double yOffset,
                                      ImagePlane plane,
@@ -562,6 +586,7 @@ public class VesselSegmentationExtension implements QuPathExtension {
                                      boolean useSelectedAnnotations) throws Exception {
 
         Map<Integer, List<Point2>> contourMap = new LinkedHashMap<>();
+        Map<Integer, VesselMeasurement> measurementMap = readMeasurementCsv(measurementCsv);
 
         try (BufferedReader br = new BufferedReader(new FileReader(contourCsv))) {
             String line = br.readLine();
@@ -584,7 +609,10 @@ public class VesselSegmentationExtension implements QuPathExtension {
         List<PathObject> objects = new ArrayList<>();
         PathClass vesselClass = PathClass.fromString("Vessel");
 
-        for (List<Point2> points : contourMap.values()) {
+        for (Map.Entry<Integer, List<Point2>> entry : contourMap.entrySet()) {
+            int vesselId = entry.getKey();
+            List<Point2> points = entry.getValue();
+
             if (points.size() < 3) {
                 continue;
             }
@@ -601,6 +629,18 @@ public class VesselSegmentationExtension implements QuPathExtension {
             }
 
             var obj = PathObjects.createDetectionObject(roi, vesselClass);
+
+            obj.getMeasurementList().put("VeSpA: Vessel ID", vesselId);
+
+            VesselMeasurement m = measurementMap.get(vesselId);
+            if (m != null) {
+                obj.getMeasurementList().put("VeSpA: Area", m.area);
+                obj.getMeasurementList().put("VeSpA: Major axis length", m.axisMajorLength);
+                obj.getMeasurementList().put("VeSpA: Minor axis length", m.axisMinorLength);
+                obj.getMeasurementList().put("VeSpA: Eccentricity", m.eccentricity);
+                obj.getMeasurementList().put("VeSpA: Orientation", m.orientation);
+            }
+
             objects.add(obj);
         }
 
@@ -608,6 +648,7 @@ public class VesselSegmentationExtension implements QuPathExtension {
 
         if (useSelectedAnnotations && parentObject != null && parentObject.isAnnotation()) {
             parentObject.addChildObjects(objects);
+            parentObject.getMeasurementList().put("Num Vessel", objects.size());
             hierarchy.fireHierarchyChangedEvent(parentObject);
         } else {
             hierarchy.addObjects(objects);
@@ -616,6 +657,44 @@ public class VesselSegmentationExtension implements QuPathExtension {
 
         System.out.println("Objects imported from " + contourCsv.getName() + ": " + objects.size());
         return objects.size();
+    }
+
+    private Map<Integer, VesselMeasurement> readMeasurementCsv(File measurementCsv) throws Exception {
+        Map<Integer, VesselMeasurement> measurements = new LinkedHashMap<>();
+
+        if (measurementCsv == null || !measurementCsv.exists()) {
+            System.out.println("Measurement CSV not found: " + measurementCsv);
+            return measurements;
+        }
+
+        try (BufferedReader br = new BufferedReader(new FileReader(measurementCsv))) {
+            String line = br.readLine();
+
+            while ((line = br.readLine()) != null) {
+                String[] parts = line.split(",");
+                if (parts.length < 6) {
+                    continue;
+                }
+
+                int vesselId = Integer.parseInt(parts[0].trim());
+                double area = Double.parseDouble(parts[1].trim());
+                double major = Double.parseDouble(parts[2].trim());
+                double minor = Double.parseDouble(parts[3].trim());
+                double eccentricity = Double.parseDouble(parts[4].trim());
+                double orientation = Double.parseDouble(parts[5].trim());
+
+                measurements.put(vesselId, new VesselMeasurement(
+                        area,
+                        major,
+                        minor,
+                        eccentricity,
+                        orientation
+                ));
+            }
+        }
+
+        System.out.println("Measurements imported: " + measurements.size());
+        return measurements;
     }
 
     private void showMessage(Alert.AlertType type, String title, String message) {
