@@ -47,7 +47,7 @@ VESSEL_AREA_MIN = 500               # px²
 #  CORE LUMEN-FILLING LOGIC
 # ─────────────────────────────────────────────
 
-def fill_vessel_lumens(binary_walls: np.ndarray) -> np.ndarray:
+def fill_vessel_lumens(binary_walls):
     """
     Detect and fill vessel lumens in four steps:
       1. Repair fragmented walls via morphological closing (lumen detection only).
@@ -118,7 +118,7 @@ def fill_vessel_lumens(binary_walls: np.ndarray) -> np.ndarray:
 #  PLUGIN-SUPPORT UTILITIES
 # ─────────────────────────────────────────────
 
-def get_cv2_kernel_shape(shape_name: str):
+def get_cv2_kernel_shape(shape_name):
     """
     Convert the kernel shape selected in the QuPath GUI to the corresponding
     OpenCV structuring element type.
@@ -137,7 +137,7 @@ def get_cv2_kernel_shape(shape_name: str):
     raise ValueError(f"Unsupported kernel shape: {shape_name}")
 
 
-def save_contours_csv(label_img: np.ndarray, csv_path: Path) -> None:
+def save_contours_csv(label_img, csv_path):
     """
     Save vessel contours in the CSV format expected by the QuPath plugin.
 
@@ -189,15 +189,15 @@ def save_contours_csv(label_img: np.ndarray, csv_path: Path) -> None:
 # ─────────────────────────────────────────────
 
 def process_image(
-    input_path: str,
-    output_dir: str,
-    threshold_mode: str = "otsu",
-    percentile: int | None = None,
-    dilation_kernel_size: tuple[int, int] = (DILATE_KSIZE, DILATE_KSIZE),
+    input_path,
+    output_dir,
+    threshold_mode="otsu",
+    percentile=None,
+    dilation_kernel_size=(DILATE_KSIZE, DILATE_KSIZE),
     dilation_kernel_shape=cv2.MORPH_ELLIPSE,
-    erosion_kernel_size: tuple[int, int] = (ERODE_KSIZE, ERODE_KSIZE),
-    vessel_area_min: int = VESSEL_AREA_MIN
-) -> int:
+    erosion_kernel_size=(ERODE_KSIZE, ERODE_KSIZE),
+    vessel_area_min=VESSEL_AREA_MIN
+):
     """
     Process a single image: segment vessels and fill their lumens.
     Returns the number of vessels detected.
@@ -364,22 +364,22 @@ def process_image(
 #  FOLDER-LEVEL PROCESSING
 # ─────────────────────────────────────────────
 
-def natural_sort_key(path: Path) -> list:
+def natural_sort_key(path):
     """Sort paths so that e.g. image_2.png comes before image_10.png."""
     parts = re.split(r"(\d+)", path.name)
     return [int(p) if p.isdigit() else p.lower() for p in parts]
 
 
 def process_folder(
-    input_folder: str,
-    output_folder: str,
-    threshold_mode: str = "otsu",
-    percentile: int | None = None,
-    dilation_kernel_size: tuple[int, int] = (DILATE_KSIZE, DILATE_KSIZE),
+    input_folder,
+    output_folder,
+    threshold_mode="otsu",
+    percentile=None,
+    dilation_kernel_size=(DILATE_KSIZE, DILATE_KSIZE),
     dilation_kernel_shape=cv2.MORPH_ELLIPSE,
-    erosion_kernel_size: tuple[int, int] = (ERODE_KSIZE, ERODE_KSIZE),
-    vessel_area_min: int = VESSEL_AREA_MIN
-) -> None:
+    erosion_kernel_size=(ERODE_KSIZE, ERODE_KSIZE),
+    vessel_area_min=VESSEL_AREA_MIN
+):
     """Process all PNG files in the input folder."""
     png_files = sorted(Path(input_folder).glob("*.png"), key=natural_sort_key)
 
@@ -431,7 +431,7 @@ def process_folder(
 #  ENTRY POINT
 # ─────────────────────────────────────────────
 
-def get_threshold_mode() -> tuple[str, int | None]:
+def get_threshold_mode():
     """
     Prompt the user to choose a thresholding method.
     Returns (mode, percentile) where percentile is None for Otsu mode.
@@ -439,7 +439,7 @@ def get_threshold_mode() -> tuple[str, int | None]:
     This function is kept for standalone/script use.
     The QuPath plugin does not call this interactive prompt.
     """
-    def prompt_percentile(default: int = 10) -> int:
+    def prompt_percentile(default=10):
         """Prompt for a percentile value in 1–99, with a suggested default."""
         while True:
             raw = input(f"  Enter percentile (1–99) [suggested: {default}]: ").strip()
@@ -475,7 +475,7 @@ def get_threshold_mode() -> tuple[str, int | None]:
         print("  Invalid input. Please enter 1 or 2.")
 
 
-def main() -> None:
+def main():
     """
     Entry point.
 
