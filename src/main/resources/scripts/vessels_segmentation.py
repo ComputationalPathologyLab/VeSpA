@@ -127,10 +127,8 @@ def get_cv2_kernel_shape(shape_name):
 
     if shape_name == "ELLIPSE":
         return cv2.MORPH_ELLIPSE
-
     if shape_name == "RECT":
         return cv2.MORPH_RECT
-
     if shape_name == "CROSS":
         return cv2.MORPH_CROSS
 
@@ -148,7 +146,6 @@ def save_contours_csv(label_img, csv_path):
     area, major/minor axis length, eccentricity, and orientation to each vessel.
     """
     rows = []
-
     labels = sorted([lab for lab in np.unique(label_img) if lab != 0])
 
     for output_id, lab in enumerate(labels):
@@ -195,7 +192,9 @@ def process_image(
     percentile=None,
     dilation_kernel_size=(DILATE_KSIZE, DILATE_KSIZE),
     dilation_kernel_shape=cv2.MORPH_ELLIPSE,
+    dilation_iter=DILATE_ITER,
     erosion_kernel_size=(ERODE_KSIZE, ERODE_KSIZE),
+    erosion_iter=ERODE_ITER,
     vessel_area_min=VESSEL_AREA_MIN
 ):
     """
@@ -205,7 +204,7 @@ def process_image(
     This function keeps the collaborator's vessel/lumen logic, but is also
     compatible with the QuPath plugin:
       - input_path and output_dir are passed from Java
-      - morphology parameters are passed from the GUI
+      - morphology and lumen parameters are passed from the GUI
       - outputs include binary mask, overlay, measurements CSV, and contour CSV
     """
     base_name = Path(input_path).stem
@@ -250,20 +249,20 @@ def process_image(
         raise ValueError(f"Invalid threshold_mode: '{threshold_mode}'.")
 
     # ── Step 4: Initial morphological cleanup ─────────────────────────
-    # The dilation kernel size and shape are configurable from the QuPath GUI.
+    # The dilation kernel size, shape, and iteration count are configurable from the QuPath GUI.
     kernel_d = cv2.getStructuringElement(
         dilation_kernel_shape,
         dilation_kernel_size
     )
-    dilated = cv2.dilate(binary, kernel_d, iterations=DILATE_ITER)
+    dilated = cv2.dilate(binary, kernel_d, iterations=dilation_iter)
 
-    # The erosion kernel size is configurable from the QuPath GUI.
+    # The erosion kernel size and iteration count are configurable from the QuPath GUI.
     # Erosion shape remains elliptical to preserve the intended biological morphology.
     kernel_e = cv2.getStructuringElement(
         cv2.MORPH_ELLIPSE,
         erosion_kernel_size
     )
-    eroded = cv2.erode(dilated, kernel_e, iterations=ERODE_ITER)
+    eroded = cv2.erode(dilated, kernel_e, iterations=erosion_iter)
 
     # ── Step 5: Contour refinement (keep large vessels only) ───────────
     contours, _ = cv2.findContours(
@@ -377,7 +376,9 @@ def process_folder(
     percentile=None,
     dilation_kernel_size=(DILATE_KSIZE, DILATE_KSIZE),
     dilation_kernel_shape=cv2.MORPH_ELLIPSE,
+    dilation_iter=DILATE_ITER,
     erosion_kernel_size=(ERODE_KSIZE, ERODE_KSIZE),
+    erosion_iter=ERODE_ITER,
     vessel_area_min=VESSEL_AREA_MIN
 ):
     """Process all PNG files in the input folder."""
@@ -392,7 +393,9 @@ def process_folder(
     print(f"Found {len(png_files)} PNG files to process")
     print(f"Threshold mode: {mode_label}")
     print(f"Dilation kernel size: {dilation_kernel_size}")
+    print(f"Dilation iterations: {dilation_iter}")
     print(f"Erosion kernel size: {erosion_kernel_size}")
+    print(f"Erosion iterations: {erosion_iter}")
     print(f"Vessel area minimum: {vessel_area_min}")
     print("=" * 60)
 
@@ -410,7 +413,9 @@ def process_folder(
                 percentile,
                 dilation_kernel_size,
                 dilation_kernel_shape,
+                dilation_iter,
                 erosion_kernel_size,
+                erosion_iter,
                 vessel_area_min
             )
 
@@ -485,6 +490,15 @@ def main():
     For QuPath plugin use:
       Java calls this script with input/output folders and morphology parameters.
     """
+    global LUMEN_AREA_MIN
+    global LUMEN_AREA_MAX
+    global LUMEN_CIRCULARITY_MIN
+    global LUMEN_ECCENTRICITY_MAX
+    global WALL_CLOSE_KSIZE
+    global WALL_CLOSE_ITER
+    global LUMEN_EXPAND_KSIZE
+    global LUMEN_EXPAND_ITER
+
     parser = argparse.ArgumentParser(
         description="VeSpA vessel segmentation for standalone use and QuPath plugin integration"
     )
@@ -492,8 +506,17 @@ def main():
     parser.add_argument("input_folder", type=str)
     parser.add_argument("output_folder", type=str)
 
+    parser.add_argument("--lumen-area-min", type=int, default=LUMEN_AREA_MIN)
+    parser.add_argument("--lumen-area-max", type=int, default=LUMEN_AREA_MAX)
+    parser.add_argument("--lumen-circularity-min", type=float, default=LUMEN_CIRCULARITY_MIN)
+    parser.add_argument("--lumen-eccentricity-max", type=float, default=LUMEN_ECCENTRICITY_MAX)
+
+    parser.add_argument("--wall-close-ksize", type=int, default=WALL_CLOSE_KSIZE)
+    parser.add_argument("--wall-close-iter", type=int, default=WALL_CLOSE_ITER)
+
     parser.add_argument("--dilation-kernel-width", type=int, default=DILATE_KSIZE)
     parser.add_argument("--dilation-kernel-height", type=int, default=DILATE_KSIZE)
+    parser.add_argument("--dilation-iter", type=int, default=DILATE_ITER)
     parser.add_argument(
         "--dilation-kernel-shape",
         type=str,
@@ -503,6 +526,10 @@ def main():
 
     parser.add_argument("--erosion-kernel-width", type=int, default=ERODE_KSIZE)
     parser.add_argument("--erosion-kernel-height", type=int, default=ERODE_KSIZE)
+    parser.add_argument("--erosion-iter", type=int, default=ERODE_ITER)
+
+    parser.add_argument("--lumen-expand-ksize", type=int, default=LUMEN_EXPAND_KSIZE)
+    parser.add_argument("--lumen-expand-iter", type=int, default=LUMEN_EXPAND_ITER)
 
     parser.add_argument(
         "--threshold-mode",
@@ -514,6 +541,17 @@ def main():
     parser.add_argument("--vessel-area-min", type=int, default=VESSEL_AREA_MIN)
 
     args = parser.parse_args()
+
+    # Parameters used inside fill_vessel_lumens are global by design, preserving
+    # the collaborator's original implementation while making them GUI-configurable.
+    LUMEN_AREA_MIN = args.lumen_area_min
+    LUMEN_AREA_MAX = args.lumen_area_max
+    LUMEN_CIRCULARITY_MIN = args.lumen_circularity_min
+    LUMEN_ECCENTRICITY_MAX = args.lumen_eccentricity_max
+    WALL_CLOSE_KSIZE = args.wall_close_ksize
+    WALL_CLOSE_ITER = args.wall_close_iter
+    LUMEN_EXPAND_KSIZE = args.lumen_expand_ksize
+    LUMEN_EXPAND_ITER = args.lumen_expand_iter
 
     input_folder = Path(args.input_folder)
     output_folder = Path(args.output_folder)
@@ -535,6 +573,16 @@ def main():
         args.erosion_kernel_height
     )
 
+    print("VeSpA parameter summary")
+    print(f"Lumen area min: {LUMEN_AREA_MIN}")
+    print(f"Lumen area max: {LUMEN_AREA_MAX}")
+    print(f"Lumen circularity min: {LUMEN_CIRCULARITY_MIN}")
+    print(f"Lumen eccentricity max: {LUMEN_ECCENTRICITY_MAX}")
+    print(f"Wall close kernel size: {WALL_CLOSE_KSIZE}")
+    print(f"Wall close iterations: {WALL_CLOSE_ITER}")
+    print(f"Lumen expansion kernel size: {LUMEN_EXPAND_KSIZE}")
+    print(f"Lumen expansion iterations: {LUMEN_EXPAND_ITER}")
+
     process_folder(
         input_folder=str(input_folder),
         output_folder=str(output_folder),
@@ -542,7 +590,9 @@ def main():
         percentile=args.percentile,
         dilation_kernel_size=dilation_kernel_size,
         dilation_kernel_shape=dilation_kernel_shape,
+        dilation_iter=args.dilation_iter,
         erosion_kernel_size=erosion_kernel_size,
+        erosion_iter=args.erosion_iter,
         vessel_area_min=args.vessel_area_min
     )
 

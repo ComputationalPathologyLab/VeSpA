@@ -22,6 +22,8 @@ import javafx.scene.control.ComboBox;
 import javafx.scene.control.Label;
 import javafx.scene.control.MenuItem;
 import javafx.scene.control.RadioButton;
+import javafx.scene.control.ScrollPane;
+import javafx.scene.control.Separator;
 import javafx.scene.control.TextArea;
 import javafx.scene.control.TextField;
 import javafx.scene.control.TitledPane;
@@ -61,15 +63,31 @@ public class VesselSegmentationExtension implements QuPathExtension {
     private static final String PYTHON_SCRIPT_RESOURCE = "/scripts/vessels_segmentation.py";
     private static final String LOGO_RESOURCE = "/images/vespa_logo.png";
 
+    private static final int DEFAULT_LUMEN_AREA_MIN = 200;
+    private static final int DEFAULT_LUMEN_AREA_MAX = 80000;
+    private static final double DEFAULT_LUMEN_CIRCULARITY_MIN = 0.20;
+    private static final double DEFAULT_LUMEN_ECCENTRICITY_MAX = 0.97;
+
+    private static final int DEFAULT_WALL_CLOSE_KSIZE = 28;
+    private static final int DEFAULT_WALL_CLOSE_ITER = 2;
+
     private static final int DEFAULT_DILATION_WIDTH = 21;
     private static final int DEFAULT_DILATION_HEIGHT = 21;
+    private static final int DEFAULT_DILATION_ITER = 1;
+
     private static final int DEFAULT_EROSION_WIDTH = 3;
     private static final int DEFAULT_EROSION_HEIGHT = 3;
+    private static final int DEFAULT_EROSION_ITER = 2;
+
+    private static final int DEFAULT_LUMEN_EXPAND_KSIZE = 5;
+    private static final int DEFAULT_LUMEN_EXPAND_ITER = 3;
+
+    private static final int DEFAULT_VESSEL_AREA_MIN = 500;
     private static final String DEFAULT_KERNEL_SHAPE = "ELLIPSE";
 
-    private static final double WINDOW_WIDTH = 560;
-    private static final double COLLAPSED_HEIGHT = 250;
-    private static final double EXPANDED_HEIGHT = 390;
+    private static final double WINDOW_WIDTH = 720;
+    private static final double COLLAPSED_HEIGHT = 300;
+    private static final double EXPANDED_HEIGHT = 650;
 
     private static class ExportTask {
         String baseName;
@@ -114,6 +132,97 @@ public class VesselSegmentationExtension implements QuPathExtension {
         }
     }
 
+    private static class ParameterFields {
+        TextField lumenAreaMin = new TextField(String.valueOf(DEFAULT_LUMEN_AREA_MIN));
+        TextField lumenAreaMax = new TextField(String.valueOf(DEFAULT_LUMEN_AREA_MAX));
+        TextField lumenCircularityMin = new TextField(String.valueOf(DEFAULT_LUMEN_CIRCULARITY_MIN));
+        TextField lumenEccentricityMax = new TextField(String.valueOf(DEFAULT_LUMEN_ECCENTRICITY_MAX));
+
+        TextField wallCloseKsize = new TextField(String.valueOf(DEFAULT_WALL_CLOSE_KSIZE));
+        TextField wallCloseIter = new TextField(String.valueOf(DEFAULT_WALL_CLOSE_ITER));
+
+        TextField dilationWidth = new TextField(String.valueOf(DEFAULT_DILATION_WIDTH));
+        TextField dilationHeight = new TextField(String.valueOf(DEFAULT_DILATION_HEIGHT));
+        TextField dilationIter = new TextField(String.valueOf(DEFAULT_DILATION_ITER));
+
+        TextField erosionWidth = new TextField(String.valueOf(DEFAULT_EROSION_WIDTH));
+        TextField erosionHeight = new TextField(String.valueOf(DEFAULT_EROSION_HEIGHT));
+        TextField erosionIter = new TextField(String.valueOf(DEFAULT_EROSION_ITER));
+
+        ComboBox<String> kernelShape = new ComboBox<>(
+                FXCollections.observableArrayList("ELLIPSE", "RECT", "CROSS")
+        );
+
+        TextField lumenExpandKsize = new TextField(String.valueOf(DEFAULT_LUMEN_EXPAND_KSIZE));
+        TextField lumenExpandIter = new TextField(String.valueOf(DEFAULT_LUMEN_EXPAND_ITER));
+
+        TextField vesselAreaMin = new TextField(String.valueOf(DEFAULT_VESSEL_AREA_MIN));
+
+        ParameterFields() {
+            kernelShape.setValue(DEFAULT_KERNEL_SHAPE);
+            for (TextField field : List.of(
+                    lumenAreaMin, lumenAreaMax, lumenCircularityMin, lumenEccentricityMax,
+                    wallCloseKsize, wallCloseIter,
+                    dilationWidth, dilationHeight, dilationIter,
+                    erosionWidth, erosionHeight, erosionIter,
+                    lumenExpandKsize, lumenExpandIter, vesselAreaMin
+            )) {
+                field.setPrefWidth(120);
+            }
+            kernelShape.setPrefWidth(120);
+        }
+
+        void setDefaults() {
+            lumenAreaMin.setText(String.valueOf(DEFAULT_LUMEN_AREA_MIN));
+            lumenAreaMax.setText(String.valueOf(DEFAULT_LUMEN_AREA_MAX));
+            lumenCircularityMin.setText(String.valueOf(DEFAULT_LUMEN_CIRCULARITY_MIN));
+            lumenEccentricityMax.setText(String.valueOf(DEFAULT_LUMEN_ECCENTRICITY_MAX));
+
+            wallCloseKsize.setText(String.valueOf(DEFAULT_WALL_CLOSE_KSIZE));
+            wallCloseIter.setText(String.valueOf(DEFAULT_WALL_CLOSE_ITER));
+
+            dilationWidth.setText(String.valueOf(DEFAULT_DILATION_WIDTH));
+            dilationHeight.setText(String.valueOf(DEFAULT_DILATION_HEIGHT));
+            dilationIter.setText(String.valueOf(DEFAULT_DILATION_ITER));
+
+            erosionWidth.setText(String.valueOf(DEFAULT_EROSION_WIDTH));
+            erosionHeight.setText(String.valueOf(DEFAULT_EROSION_HEIGHT));
+            erosionIter.setText(String.valueOf(DEFAULT_EROSION_ITER));
+
+            kernelShape.setValue(DEFAULT_KERNEL_SHAPE);
+
+            lumenExpandKsize.setText(String.valueOf(DEFAULT_LUMEN_EXPAND_KSIZE));
+            lumenExpandIter.setText(String.valueOf(DEFAULT_LUMEN_EXPAND_ITER));
+
+            vesselAreaMin.setText(String.valueOf(DEFAULT_VESSEL_AREA_MIN));
+        }
+    }
+
+    private static class RunParameters {
+        int lumenAreaMin;
+        int lumenAreaMax;
+        double lumenCircularityMin;
+        double lumenEccentricityMax;
+
+        int wallCloseKsize;
+        int wallCloseIter;
+
+        int dilationWidth;
+        int dilationHeight;
+        int dilationIter;
+
+        int erosionWidth;
+        int erosionHeight;
+        int erosionIter;
+
+        String kernelShape;
+
+        int lumenExpandKsize;
+        int lumenExpandIter;
+
+        int vesselAreaMin;
+    }
+
     @Override
     public void installExtension(QuPathGUI qupath) {
         var menu = qupath.getMenu("Extensions > Vessel Segmentation", true);
@@ -136,6 +245,7 @@ public class VesselSegmentationExtension implements QuPathExtension {
         stage.setTitle("Vessel Spatial Analysis");
 
         ImageView logoView = createLogoView();
+        ParameterFields fields = new ParameterFields();
 
         Label inputModeLabel = new Label("Input region:");
         ToggleGroup inputModeGroup = new ToggleGroup();
@@ -147,45 +257,59 @@ public class VesselSegmentationExtension implements QuPathExtension {
         RadioButton wholeImageButton = new RadioButton("Whole image");
         wholeImageButton.setToggleGroup(inputModeGroup);
 
-        TextField dilationWidthField = new TextField(String.valueOf(DEFAULT_DILATION_WIDTH));
-        TextField dilationHeightField = new TextField(String.valueOf(DEFAULT_DILATION_HEIGHT));
-        TextField erosionWidthField = new TextField(String.valueOf(DEFAULT_EROSION_WIDTH));
-        TextField erosionHeightField = new TextField(String.valueOf(DEFAULT_EROSION_HEIGHT));
+        GridPane inputGrid = new GridPane();
+        inputGrid.setHgap(12);
+        inputGrid.setVgap(10);
+        inputGrid.add(inputModeLabel, 0, 0);
+        inputGrid.add(selectedAnnotationButton, 1, 0);
+        inputGrid.add(wholeImageButton, 1, 1);
 
-        dilationWidthField.setPrefWidth(150);
-        dilationHeightField.setPrefWidth(150);
-        erosionWidthField.setPrefWidth(150);
-        erosionHeightField.setPrefWidth(150);
+        VBox inputPanel = new VBox(8, inputGrid);
+        inputPanel.setPadding(new Insets(14));
+        inputPanel.setStyle(cardStyle());
 
-        ComboBox<String> shapeBox = new ComboBox<>(
-                FXCollections.observableArrayList("ELLIPSE", "RECT", "CROSS")
+        VBox parametersBox = new VBox(10);
+        parametersBox.setPadding(new Insets(10));
+        parametersBox.getChildren().addAll(
+                createSection("Lumen detection",
+                        row("Min area (px²)", fields.lumenAreaMin, "ignore tiny noise holes"),
+                        row("Max area (px²)", fields.lumenAreaMax, "ignore artefactually large holes"),
+                        row("Circularity min", fields.lumenCircularityMin, "low values allow elongated/irregular lumens"),
+                        row("Eccentricity max", fields.lumenEccentricityMax, "reject near-linear artefacts")
+                ),
+                createSection("Wall repair before lumen detection",
+                        row("Closing kernel size", fields.wallCloseKsize, "increase if vessel walls are fragmented"),
+                        row("Closing iterations", fields.wallCloseIter, "increase to improve wall closing")
+                ),
+                createSection("Initial morphological cleanup",
+                        row("Dilation width", fields.dilationWidth, "initial binary cleanup"),
+                        row("Dilation height", fields.dilationHeight, "initial binary cleanup"),
+                        row("Dilation iterations", fields.dilationIter, "number of dilation passes"),
+                        row("Kernel shape", fields.kernelShape, "structuring element shape"),
+                        row("Erosion width", fields.erosionWidth, "boundary restoration"),
+                        row("Erosion height", fields.erosionHeight, "boundary restoration"),
+                        row("Erosion iterations", fields.erosionIter, "number of erosion passes")
+                ),
+                createSection("Lumen expansion",
+                        row("Expansion kernel size", fields.lumenExpandKsize, "merge lumen onto inner wall boundary"),
+                        row("Expansion iterations", fields.lumenExpandIter, "increase to bridge larger inner-wall gaps")
+                ),
+                createSection("Vessel filtering",
+                        row("Minimum vessel area (px²)", fields.vesselAreaMin, "remove small connected components")
+                )
         );
-        shapeBox.setValue(DEFAULT_KERNEL_SHAPE);
-        shapeBox.setPrefWidth(150);
 
-        GridPane optionsGrid = new GridPane();
-        optionsGrid.setHgap(10);
-        optionsGrid.setVgap(10);
-        optionsGrid.setPadding(new Insets(10, 10, 10, 10));
+        ScrollPane scrollPane = new ScrollPane(parametersBox);
+        scrollPane.setFitToWidth(true);
+        scrollPane.setPrefViewportHeight(360);
+        scrollPane.setStyle("-fx-background-color: transparent; -fx-background: transparent;");
 
-        optionsGrid.add(new Label("Kernel width:"), 0, 0);
-        optionsGrid.add(dilationWidthField, 1, 0);
-
-        optionsGrid.add(new Label("Kernel height:"), 0, 1);
-        optionsGrid.add(dilationHeightField, 1, 1);
-
-        optionsGrid.add(new Label("Erosion width:"), 0, 2);
-        optionsGrid.add(erosionWidthField, 1, 2);
-
-        optionsGrid.add(new Label("Erosion height:"), 0, 3);
-        optionsGrid.add(erosionHeightField, 1, 3);
-
-        optionsGrid.add(new Label("Kernel shape:"), 0, 4);
-        optionsGrid.add(shapeBox, 1, 4);
-
-        TitledPane additionalOptionsPane = new TitledPane("Additional options", optionsGrid);
+        TitledPane additionalOptionsPane = new TitledPane("Additional options", scrollPane);
         additionalOptionsPane.setExpanded(false);
         additionalOptionsPane.setAnimated(false);
+
+        VBox optionsPanel = new VBox(additionalOptionsPane);
+        optionsPanel.setStyle(cardStyle());
 
         Button defaultButton = new Button("Default");
         Button resetButton = new Button("Reset");
@@ -194,88 +318,30 @@ public class VesselSegmentationExtension implements QuPathExtension {
 
         defaultButton.visibleProperty().bind(additionalOptionsPane.expandedProperty());
         defaultButton.managedProperty().bind(additionalOptionsPane.expandedProperty());
-
         resetButton.visibleProperty().bind(additionalOptionsPane.expandedProperty());
         resetButton.managedProperty().bind(additionalOptionsPane.expandedProperty());
 
-        defaultButton.setOnAction(e -> {
-            dilationWidthField.setText(String.valueOf(DEFAULT_DILATION_WIDTH));
-            dilationHeightField.setText(String.valueOf(DEFAULT_DILATION_HEIGHT));
-            erosionWidthField.setText(String.valueOf(DEFAULT_EROSION_WIDTH));
-            erosionHeightField.setText(String.valueOf(DEFAULT_EROSION_HEIGHT));
-            shapeBox.setValue(DEFAULT_KERNEL_SHAPE);
-        });
-
-        resetButton.setOnAction(e -> {
-            dilationWidthField.clear();
-            dilationHeightField.clear();
-            erosionWidthField.clear();
-            erosionHeightField.clear();
-            shapeBox.setValue(DEFAULT_KERNEL_SHAPE);
-        });
-
+        defaultButton.setOnAction(e -> fields.setDefaults());
+        resetButton.setOnAction(e -> clearFields(fields));
         exitButton.setOnAction(e -> stage.close());
 
         runButton.setOnAction(e -> {
-            int dilationWidth;
-            int dilationHeight;
-            int erosionWidth;
-            int erosionHeight;
-
+            RunParameters params;
             try {
-                dilationWidth = Integer.parseInt(dilationWidthField.getText().trim());
-                dilationHeight = Integer.parseInt(dilationHeightField.getText().trim());
-                erosionWidth = Integer.parseInt(erosionWidthField.getText().trim());
-                erosionHeight = Integer.parseInt(erosionHeightField.getText().trim());
-            } catch (NumberFormatException ex) {
-                showMessage(Alert.AlertType.ERROR, "Input Error", "All width and height values must be integers.");
+                params = parseParameters(fields);
+            } catch (Exception ex) {
+                showMessage(Alert.AlertType.ERROR, "Input Error", ex.getMessage());
                 return;
             }
 
-            if (dilationWidth <= 0 || dilationHeight <= 0 || erosionWidth <= 0 || erosionHeight <= 0) {
-                showMessage(Alert.AlertType.ERROR, "Input Error", "All width and height values must be greater than 0.");
-                return;
-            }
-
-            String kernelShape = shapeBox.getValue();
             boolean useSelectedAnnotations = selectedAnnotationButton.isSelected();
-
-            runSegmentation(
-                    qupath,
-                    dilationWidth,
-                    dilationHeight,
-                    erosionWidth,
-                    erosionHeight,
-                    kernelShape,
-                    useSelectedAnnotations
-            );
+            runSegmentation(qupath, params, useSelectedAnnotations);
         });
-
-        GridPane inputGrid = new GridPane();
-        inputGrid.setHgap(10);
-        inputGrid.setVgap(10);
-        inputGrid.add(inputModeLabel, 0, 0);
-        inputGrid.add(selectedAnnotationButton, 1, 0);
-        inputGrid.add(wholeImageButton, 1, 1);
-
-        VBox inputPanel = new VBox(8, inputGrid);
-        inputPanel.setPadding(new Insets(14, 14, 8, 14));
-        inputPanel.setStyle(
-                "-fx-background-color: #d3d3d3;" +
-                "-fx-border-color: #b0b0b0;" +
-                "-fx-border-width: 1;"
-        );
-
-        VBox optionsPanel = new VBox(additionalOptionsPane);
-        optionsPanel.setStyle(
-                "-fx-background-color: #d3d3d3;" +
-                "-fx-border-color: #b0b0b0;" +
-                "-fx-border-width: 1;"
-        );
 
         VBox rightPanel = new VBox(12, inputPanel, optionsPanel);
         rightPanel.setAlignment(Pos.TOP_LEFT);
         rightPanel.setFillWidth(true);
+        HBox.setHgrow(rightPanel, Priority.ALWAYS);
 
         VBox leftPanel = new VBox(10, logoView);
         leftPanel.setAlignment(Pos.TOP_CENTER);
@@ -319,15 +385,133 @@ public class VesselSegmentationExtension implements QuPathExtension {
         stage.centerOnScreen();
 
         additionalOptionsPane.expandedProperty().addListener((obs, oldVal, expanded) -> {
-            if (expanded) {
-                stage.setHeight(EXPANDED_HEIGHT);
-            } else {
-                stage.setHeight(COLLAPSED_HEIGHT);
-            }
+            stage.setHeight(expanded ? EXPANDED_HEIGHT : COLLAPSED_HEIGHT);
             stage.centerOnScreen();
         });
 
         stage.show();
+    }
+
+    private String cardStyle() {
+        return "-fx-background-color: #f7f7f7;" +
+                "-fx-border-color: #b8b8b8;" +
+                "-fx-border-width: 1;" +
+                "-fx-background-radius: 6;" +
+                "-fx-border-radius: 6;";
+    }
+
+    private VBox createSection(String title, HBox... rows) {
+        Label titleLabel = new Label(title);
+        titleLabel.setStyle("-fx-font-weight: bold; -fx-text-fill: #2c3e50; -fx-font-size: 12px;");
+
+        VBox box = new VBox(6);
+        box.setPadding(new Insets(10));
+        box.setStyle("-fx-background-color: #ffffff;" +
+                "-fx-border-color: #d0d0d0;" +
+                "-fx-border-width: 1;" +
+                "-fx-background-radius: 6;" +
+                "-fx-border-radius: 6;");
+
+        box.getChildren().add(titleLabel);
+        box.getChildren().add(new Separator());
+        box.getChildren().addAll(rows);
+        return box;
+    }
+
+    private HBox row(String label, TextField field, String hint) {
+        Label l = new Label(label);
+        l.setPrefWidth(160);
+
+        Label h = new Label(hint);
+        h.setStyle("-fx-text-fill: #666666; -fx-font-size: 10px;");
+        HBox.setHgrow(h, Priority.ALWAYS);
+
+        HBox row = new HBox(8, l, field, h);
+        row.setAlignment(Pos.CENTER_LEFT);
+        return row;
+    }
+
+    private HBox row(String label, ComboBox<String> field, String hint) {
+        Label l = new Label(label);
+        l.setPrefWidth(160);
+
+        Label h = new Label(hint);
+        h.setStyle("-fx-text-fill: #666666; -fx-font-size: 10px;");
+        HBox.setHgrow(h, Priority.ALWAYS);
+
+        HBox row = new HBox(8, l, field, h);
+        row.setAlignment(Pos.CENTER_LEFT);
+        return row;
+    }
+
+    private void clearFields(ParameterFields f) {
+        for (TextField field : List.of(
+                f.lumenAreaMin, f.lumenAreaMax, f.lumenCircularityMin, f.lumenEccentricityMax,
+                f.wallCloseKsize, f.wallCloseIter,
+                f.dilationWidth, f.dilationHeight, f.dilationIter,
+                f.erosionWidth, f.erosionHeight, f.erosionIter,
+                f.lumenExpandKsize, f.lumenExpandIter, f.vesselAreaMin
+        )) {
+            field.clear();
+        }
+        f.kernelShape.setValue(DEFAULT_KERNEL_SHAPE);
+    }
+
+    private RunParameters parseParameters(ParameterFields f) {
+        RunParameters p = new RunParameters();
+
+        p.lumenAreaMin = parsePositiveInt(f.lumenAreaMin, "Lumen min area");
+        p.lumenAreaMax = parsePositiveInt(f.lumenAreaMax, "Lumen max area");
+        p.lumenCircularityMin = parseDoubleRange(f.lumenCircularityMin, "Lumen circularity min", 0.0, 1.0);
+        p.lumenEccentricityMax = parseDoubleRange(f.lumenEccentricityMax, "Lumen eccentricity max", 0.0, 1.0);
+
+        p.wallCloseKsize = parsePositiveInt(f.wallCloseKsize, "Wall close kernel size");
+        p.wallCloseIter = parseNonNegativeInt(f.wallCloseIter, "Wall close iterations");
+
+        p.dilationWidth = parsePositiveInt(f.dilationWidth, "Dilation width");
+        p.dilationHeight = parsePositiveInt(f.dilationHeight, "Dilation height");
+        p.dilationIter = parseNonNegativeInt(f.dilationIter, "Dilation iterations");
+
+        p.erosionWidth = parsePositiveInt(f.erosionWidth, "Erosion width");
+        p.erosionHeight = parsePositiveInt(f.erosionHeight, "Erosion height");
+        p.erosionIter = parseNonNegativeInt(f.erosionIter, "Erosion iterations");
+
+        p.kernelShape = f.kernelShape.getValue();
+
+        p.lumenExpandKsize = parsePositiveInt(f.lumenExpandKsize, "Lumen expansion kernel size");
+        p.lumenExpandIter = parseNonNegativeInt(f.lumenExpandIter, "Lumen expansion iterations");
+
+        p.vesselAreaMin = parsePositiveInt(f.vesselAreaMin, "Minimum vessel area");
+
+        if (p.lumenAreaMin > p.lumenAreaMax) {
+            throw new IllegalArgumentException("Lumen min area cannot be greater than lumen max area.");
+        }
+
+        return p;
+    }
+
+    private int parsePositiveInt(TextField field, String name) {
+        int value = Integer.parseInt(field.getText().trim());
+        if (value <= 0) {
+            throw new IllegalArgumentException(name + " must be greater than 0.");
+        }
+        return value;
+    }
+
+    private int parseNonNegativeInt(TextField field, String name) {
+        int value = Integer.parseInt(field.getText().trim());
+        if (value < 0) {
+            throw new IllegalArgumentException(name + " cannot be negative.");
+        }
+        return value;
+    }
+
+    private double parseDoubleRange(TextField field, String name, double min, double max) {
+        double value = Double.parseDouble(field.getText().trim());
+        if (value < min || value > max) {
+            throw new IllegalArgumentException(name + " must be between " + min + " and " + max + ".");
+        }
+        return value;
     }
 
     private ImageView createLogoView() {
@@ -383,13 +567,7 @@ public class VesselSegmentationExtension implements QuPathExtension {
         }
     }
 
-    private void runSegmentation(QuPathGUI qupath,
-                                 int dilationWidth,
-                                 int dilationHeight,
-                                 int erosionWidth,
-                                 int erosionHeight,
-                                 String kernelShape,
-                                 boolean useSelectedAnnotations) {
+    private void runSegmentation(QuPathGUI qupath, RunParameters params, boolean useSelectedAnnotations) {
 
         try {
             String pythonExec = ensurePythonConfigured();
@@ -398,10 +576,6 @@ public class VesselSegmentationExtension implements QuPathExtension {
             }
 
             File extractedScript = extractBundledPythonScript();
-            if (extractedScript == null || !extractedScript.exists()) {
-                showMessage(Alert.AlertType.ERROR, "Script Error", "Could not extract bundled vessel segmentation script.");
-                return;
-            }
 
             if (qupath.getImageData() == null) {
                 showMessage(Alert.AlertType.ERROR, "No Image", "No image is currently open in QuPath.");
@@ -444,12 +618,7 @@ public class VesselSegmentationExtension implements QuPathExtension {
                 for (PathObject selectedObject : validAnnotations) {
                     ROI roi = selectedObject.getROI();
 
-                    RegionRequest request = RegionRequest.createInstance(
-                            server.getPath(),
-                            1.0,
-                            roi
-                    );
-
+                    RegionRequest request = RegionRequest.createInstance(server.getPath(), 1.0, roi);
                     BufferedImage img = server.readRegion(request);
 
                     String baseName = "qupath_annotation_export_" + index;
@@ -498,11 +667,28 @@ public class VesselSegmentationExtension implements QuPathExtension {
                     extractedScript.getAbsolutePath(),
                     tempInputDir.getAbsolutePath(),
                     outputDir.getAbsolutePath(),
-                    "--dilation-kernel-width", String.valueOf(dilationWidth),
-                    "--dilation-kernel-height", String.valueOf(dilationHeight),
-                    "--erosion-kernel-width", String.valueOf(erosionWidth),
-                    "--erosion-kernel-height", String.valueOf(erosionHeight),
-                    "--dilation-kernel-shape", kernelShape
+
+                    "--lumen-area-min", String.valueOf(params.lumenAreaMin),
+                    "--lumen-area-max", String.valueOf(params.lumenAreaMax),
+                    "--lumen-circularity-min", String.valueOf(params.lumenCircularityMin),
+                    "--lumen-eccentricity-max", String.valueOf(params.lumenEccentricityMax),
+
+                    "--wall-close-ksize", String.valueOf(params.wallCloseKsize),
+                    "--wall-close-iter", String.valueOf(params.wallCloseIter),
+
+                    "--dilation-kernel-width", String.valueOf(params.dilationWidth),
+                    "--dilation-kernel-height", String.valueOf(params.dilationHeight),
+                    "--dilation-iter", String.valueOf(params.dilationIter),
+                    "--dilation-kernel-shape", params.kernelShape,
+
+                    "--erosion-kernel-width", String.valueOf(params.erosionWidth),
+                    "--erosion-kernel-height", String.valueOf(params.erosionHeight),
+                    "--erosion-iter", String.valueOf(params.erosionIter),
+
+                    "--lumen-expand-ksize", String.valueOf(params.lumenExpandKsize),
+                    "--lumen-expand-iter", String.valueOf(params.lumenExpandIter),
+
+                    "--vessel-area-min", String.valueOf(params.vesselAreaMin)
             );
 
             pb.redirectErrorStream(true);
@@ -649,6 +835,7 @@ public class VesselSegmentationExtension implements QuPathExtension {
         if (useSelectedAnnotations && parentObject != null && parentObject.isAnnotation()) {
             parentObject.addChildObjects(objects);
             parentObject.getMeasurementList().put("Num Vessel", objects.size());
+            addParentSummaryMeasurements(parentObject, objects);
             hierarchy.fireHierarchyChangedEvent(parentObject);
         } else {
             hierarchy.addObjects(objects);
@@ -657,6 +844,44 @@ public class VesselSegmentationExtension implements QuPathExtension {
 
         System.out.println("Objects imported from " + contourCsv.getName() + ": " + objects.size());
         return objects.size();
+    }
+
+    private void addParentSummaryMeasurements(PathObject parentObject, List<PathObject> objects) {
+        if (objects.isEmpty()) {
+            return;
+        }
+
+        double sumArea = 0;
+        double sumMajor = 0;
+        double sumMinor = 0;
+        double sumEcc = 0;
+        double sumOrient = 0;
+        int n = 0;
+
+        for (PathObject obj : objects) {
+            var ml = obj.getMeasurementList();
+
+            double area = ml.get("VeSpA: Area");
+            if (!Double.isNaN(area)) {
+                sumArea += area;
+                sumMajor += ml.get("VeSpA: Major axis length");
+                sumMinor += ml.get("VeSpA: Minor axis length");
+                sumEcc += ml.get("VeSpA: Eccentricity");
+                sumOrient += ml.get("VeSpA: Orientation");
+                n++;
+            }
+        }
+
+        if (n == 0) {
+            return;
+        }
+
+        parentObject.getMeasurementList().put("VeSpA: Mean Area", sumArea / n);
+        parentObject.getMeasurementList().put("VeSpA: Total Vessel Area", sumArea);
+        parentObject.getMeasurementList().put("VeSpA: Mean Major axis length", sumMajor / n);
+        parentObject.getMeasurementList().put("VeSpA: Mean Minor axis length", sumMinor / n);
+        parentObject.getMeasurementList().put("VeSpA: Mean Eccentricity", sumEcc / n);
+        parentObject.getMeasurementList().put("VeSpA: Mean Orientation", sumOrient / n);
     }
 
     private Map<Integer, VesselMeasurement> readMeasurementCsv(File measurementCsv) throws Exception {
