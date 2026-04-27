@@ -171,6 +171,10 @@ public class VesselSegmentationExtension implements QuPathExtension {
             thresholdMode.setValue(DEFAULT_THRESHOLD_MODE);
             thresholdMode.setPrefWidth(120);
 
+            percentile.setPromptText("1-99");
+            thresholdMode.valueProperty().addListener((obs, oldValue, newValue) -> updatePercentileFieldState());
+            updatePercentileFieldState();
+
             kernelShape.setValue(DEFAULT_KERNEL_SHAPE);
             kernelShape.setPrefWidth(120);
 
@@ -189,6 +193,7 @@ public class VesselSegmentationExtension implements QuPathExtension {
         void setDefaults() {
             thresholdMode.setValue(DEFAULT_THRESHOLD_MODE);
             percentile.setText(String.valueOf(DEFAULT_PERCENTILE));
+            updatePercentileFieldState();
 
             lumenAreaMin.setText(String.valueOf(DEFAULT_LUMEN_AREA_MIN));
             lumenAreaMax.setText(String.valueOf(DEFAULT_LUMEN_AREA_MAX));
@@ -212,6 +217,17 @@ public class VesselSegmentationExtension implements QuPathExtension {
             lumenExpandIter.setText(String.valueOf(DEFAULT_LUMEN_EXPAND_ITER));
 
             vesselAreaMin.setText(String.valueOf(DEFAULT_VESSEL_AREA_MIN));
+        }
+
+        private void updatePercentileFieldState() {
+            boolean usePercentile = "percentile".equalsIgnoreCase(thresholdMode.getValue());
+
+            percentile.setDisable(!usePercentile);
+            percentile.setOpacity(usePercentile ? 1.0 : 0.45);
+
+            if (usePercentile && percentile.getText().trim().isBlank()) {
+                percentile.setText(String.valueOf(DEFAULT_PERCENTILE));
+            }
         }
     }
 
@@ -480,6 +496,7 @@ public class VesselSegmentationExtension implements QuPathExtension {
             field.clear();
         }
         f.thresholdMode.setValue(DEFAULT_THRESHOLD_MODE);
+        f.percentile.setText(String.valueOf(DEFAULT_PERCENTILE));
         f.kernelShape.setValue(DEFAULT_KERNEL_SHAPE);
     }
 
@@ -491,9 +508,13 @@ public class VesselSegmentationExtension implements QuPathExtension {
             throw new IllegalArgumentException("Threshold mode must be selected.");
         }
 
-        p.percentile = parsePositiveInt(f.percentile, "Percentile value");
-        if (p.percentile < 1 || p.percentile > 99) {
-            throw new IllegalArgumentException("Percentile value must be between 1 and 99.");
+        if ("percentile".equalsIgnoreCase(p.thresholdMode)) {
+            p.percentile = parsePositiveInt(f.percentile, "Percentile value");
+            if (p.percentile < 1 || p.percentile > 99) {
+                throw new IllegalArgumentException("Percentile value must be between 1 and 99.");
+            }
+        } else {
+            p.percentile = DEFAULT_PERCENTILE;
         }
 
         p.lumenAreaMin = parsePositiveInt(f.lumenAreaMin, "Lumen min area");
