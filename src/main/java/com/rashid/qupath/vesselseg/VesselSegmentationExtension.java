@@ -85,9 +85,13 @@ public class VesselSegmentationExtension implements QuPathExtension {
     private static final int DEFAULT_VESSEL_AREA_MIN = 500;
     private static final String DEFAULT_KERNEL_SHAPE = "ELLIPSE";
 
+    private static final String DEFAULT_THRESHOLD_MODE = "otsu";
+    private static final int DEFAULT_PERCENTILE = 10;
+
     private static final double WINDOW_WIDTH = 720;
     private static final double COLLAPSED_HEIGHT = 300;
     private static final double EXPANDED_HEIGHT = 650;
+
 
     private static class ExportTask {
         String baseName;
@@ -133,6 +137,11 @@ public class VesselSegmentationExtension implements QuPathExtension {
     }
 
     private static class ParameterFields {
+        ComboBox<String> thresholdMode = new ComboBox<>(
+                FXCollections.observableArrayList("otsu", "percentile")
+        );
+        TextField percentile = new TextField(String.valueOf(DEFAULT_PERCENTILE));
+
         TextField lumenAreaMin = new TextField(String.valueOf(DEFAULT_LUMEN_AREA_MIN));
         TextField lumenAreaMax = new TextField(String.valueOf(DEFAULT_LUMEN_AREA_MAX));
         TextField lumenCircularityMin = new TextField(String.valueOf(DEFAULT_LUMEN_CIRCULARITY_MIN));
@@ -159,8 +168,14 @@ public class VesselSegmentationExtension implements QuPathExtension {
         TextField vesselAreaMin = new TextField(String.valueOf(DEFAULT_VESSEL_AREA_MIN));
 
         ParameterFields() {
+            thresholdMode.setValue(DEFAULT_THRESHOLD_MODE);
+            thresholdMode.setPrefWidth(120);
+
             kernelShape.setValue(DEFAULT_KERNEL_SHAPE);
+            kernelShape.setPrefWidth(120);
+
             for (TextField field : List.of(
+                    percentile,
                     lumenAreaMin, lumenAreaMax, lumenCircularityMin, lumenEccentricityMax,
                     wallCloseKsize, wallCloseIter,
                     dilationWidth, dilationHeight, dilationIter,
@@ -169,10 +184,12 @@ public class VesselSegmentationExtension implements QuPathExtension {
             )) {
                 field.setPrefWidth(120);
             }
-            kernelShape.setPrefWidth(120);
         }
 
         void setDefaults() {
+            thresholdMode.setValue(DEFAULT_THRESHOLD_MODE);
+            percentile.setText(String.valueOf(DEFAULT_PERCENTILE));
+
             lumenAreaMin.setText(String.valueOf(DEFAULT_LUMEN_AREA_MIN));
             lumenAreaMax.setText(String.valueOf(DEFAULT_LUMEN_AREA_MAX));
             lumenCircularityMin.setText(String.valueOf(DEFAULT_LUMEN_CIRCULARITY_MIN));
@@ -199,6 +216,9 @@ public class VesselSegmentationExtension implements QuPathExtension {
     }
 
     private static class RunParameters {
+        String thresholdMode;
+        int percentile;
+
         int lumenAreaMin;
         int lumenAreaMax;
         double lumenCircularityMin;
@@ -271,6 +291,10 @@ public class VesselSegmentationExtension implements QuPathExtension {
         VBox parametersBox = new VBox(10);
         parametersBox.setPadding(new Insets(10));
         parametersBox.getChildren().addAll(
+                createSection("Thresholding",
+                        row("Threshold mode", fields.thresholdMode, "Otsu is automatic; percentile uses the value below"),
+                        row("Percentile value", fields.percentile, "used only when threshold mode is percentile, usually 10")
+                ),
                 createSection("Lumen detection",
                         row("Min area (px²)", fields.lumenAreaMin, "ignore tiny noise holes"),
                         row("Max area (px²)", fields.lumenAreaMax, "ignore artefactually large holes"),
@@ -446,6 +470,7 @@ public class VesselSegmentationExtension implements QuPathExtension {
 
     private void clearFields(ParameterFields f) {
         for (TextField field : List.of(
+                f.percentile,
                 f.lumenAreaMin, f.lumenAreaMax, f.lumenCircularityMin, f.lumenEccentricityMax,
                 f.wallCloseKsize, f.wallCloseIter,
                 f.dilationWidth, f.dilationHeight, f.dilationIter,
@@ -454,11 +479,22 @@ public class VesselSegmentationExtension implements QuPathExtension {
         )) {
             field.clear();
         }
+        f.thresholdMode.setValue(DEFAULT_THRESHOLD_MODE);
         f.kernelShape.setValue(DEFAULT_KERNEL_SHAPE);
     }
 
     private RunParameters parseParameters(ParameterFields f) {
         RunParameters p = new RunParameters();
+
+        p.thresholdMode = f.thresholdMode.getValue();
+        if (p.thresholdMode == null || p.thresholdMode.isBlank()) {
+            throw new IllegalArgumentException("Threshold mode must be selected.");
+        }
+
+        p.percentile = parsePositiveInt(f.percentile, "Percentile value");
+        if (p.percentile < 1 || p.percentile > 99) {
+            throw new IllegalArgumentException("Percentile value must be between 1 and 99.");
+        }
 
         p.lumenAreaMin = parsePositiveInt(f.lumenAreaMin, "Lumen min area");
         p.lumenAreaMax = parsePositiveInt(f.lumenAreaMax, "Lumen max area");
@@ -667,6 +703,9 @@ public class VesselSegmentationExtension implements QuPathExtension {
                     extractedScript.getAbsolutePath(),
                     tempInputDir.getAbsolutePath(),
                     outputDir.getAbsolutePath(),
+
+                    "--threshold-mode", params.thresholdMode,
+                    "--percentile", String.valueOf(params.percentile),
 
                     "--lumen-area-min", String.valueOf(params.lumenAreaMin),
                     "--lumen-area-max", String.valueOf(params.lumenAreaMax),
