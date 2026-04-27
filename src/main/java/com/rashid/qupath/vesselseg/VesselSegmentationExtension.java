@@ -140,12 +140,12 @@ public class VesselSegmentationExtension implements QuPathExtension {
         Label inputModeLabel = new Label("Input region:");
         ToggleGroup inputModeGroup = new ToggleGroup();
 
-        RadioButton wholeImageButton = new RadioButton("Whole image");
-        wholeImageButton.setToggleGroup(inputModeGroup);
-        wholeImageButton.setSelected(true);
-
         RadioButton selectedAnnotationButton = new RadioButton("Selected annotation(s)");
         selectedAnnotationButton.setToggleGroup(inputModeGroup);
+        selectedAnnotationButton.setSelected(true);
+
+        RadioButton wholeImageButton = new RadioButton("Whole image");
+        wholeImageButton.setToggleGroup(inputModeGroup);
 
         TextField dilationWidthField = new TextField(String.valueOf(DEFAULT_DILATION_WIDTH));
         TextField dilationHeightField = new TextField(String.valueOf(DEFAULT_DILATION_HEIGHT));
@@ -255,8 +255,8 @@ public class VesselSegmentationExtension implements QuPathExtension {
         inputGrid.setHgap(10);
         inputGrid.setVgap(10);
         inputGrid.add(inputModeLabel, 0, 0);
-        inputGrid.add(wholeImageButton, 1, 0);
-        inputGrid.add(selectedAnnotationButton, 1, 1);
+        inputGrid.add(selectedAnnotationButton, 1, 0);
+        inputGrid.add(wholeImageButton, 1, 1);
 
         VBox inputPanel = new VBox(8, inputGrid);
         inputPanel.setPadding(new Insets(14, 14, 8, 14));
