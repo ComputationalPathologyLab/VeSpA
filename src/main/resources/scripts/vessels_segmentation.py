@@ -1,42 +1,155 @@
 import argparse
-import re
-import sys
-from pathlib import Path
-
 import cv2
 import numpy as np
+from skimage.measure import label, regionprops_table, regionprops
 import pandas as pd
-from skimage.measure import label, regionprops, regionprops_table
-
-sys.stdout.reconfigure(line_buffering=True)
-
-# Lumen detection defaults
-LUMEN_AREA_MIN = 200
-LUMEN_AREA_MAX = 80000
-LUMEN_CIRCULARITY_MIN = 0.20
-LUMEN_ECCENTRICITY_MAX = 0.97
-
-# Wall repair defaults
-WALL_CLOSE_KSIZE = 28
-WALL_CLOSE_ITER = 2
-
-# Lumen expansion defaults
-LUMEN_EXPAND_KSIZE = 5
-LUMEN_EXPAND_ITER = 3
-
-# Vessel filtering
-VESSEL_AREA_MIN = 500
+from pathlib import Path
+import re
+import sys
 
 
-def natural_sort_key(path: Path) -> list:
-    parts = re.split(r"(\d+)", path.name)
-    return [int(p) if p.isdigit() else p.lower() for p in parts]
+# Make printed logs appear immediately in the QuPath Java process
+try:
+    sys.stdout.reconfigure(line_buffering=True)
+except Exception:
+    pass
 
 
-def save_contours_csv(label_img, csv_path):
+# ─────────────────────────────────────────────
+#  TUNABLE PARAMETERS
+# ─────────────────────────────────────────────
+
+# Lumen detection
+LUMEN_AREA_MIN = 200                # px²  – ignore tiny noise holes
+LUMEN_AREA_MAX = 80_000             # px²  – ignore artefactually large holes
+LUMEN_CIRCULARITY_MIN = 0.20        # 0–1  – low to allow elongated/irregular shapes
+LUMEN_ECCENTRICITY_MAX = 0.97       # reject near-perfect lines (fragmentation artefacts)
+
+# Wall-repair closing kernel (used before lumen detection)
+WALL_CLOSE_KSIZE = 28               # px   – increase if vessel walls are very fragmented
+WALL_CLOSE_ITER = 2                 # increase to improve wall closing
+
+# Initial morphological cleanup
+DILATE_KSIZE = 21                   # px   – dilation kernel for initial binary cleanup
+DILATE_ITER = 1
+ERODE_KSIZE = 3                     # px   – erosion kernel for initial binary cleanup
+ERODE_ITER = 2
+
+# Lumen expansion (merges lumen onto inner wall boundary after detection)
+LUMEN_EXPAND_KSIZE = 5              # px   – expansion kernel size
+LUMEN_EXPAND_ITER = 3               # increase to bridge larger inner-wall gaps
+
+# Minimum vessel area to keep after all filtering
+VESSEL_AREA_MIN = 500               # px²
+
+
+# ─────────────────────────────────────────────
+#  CORE LUMEN-FILLING LOGIC
+# ─────────────────────────────────────────────
+
+def fill_vessel_lumens(binary_walls: np.ndarray) -> np.ndarray:
+    """
+    Detect and fill vessel lumens in four steps:
+      1. Repair fragmented walls via morphological closing (lumen detection only).
+      2. Flood-fill from the image border to identify true background;
+         candidate lumens are everything that is neither background nor wall.
+      3. Filter candidates by area, eccentricity, and circularity.
+      4. Expand validated lumens by a few px and merge onto the original
+         (pre-repair) wall mask to preserve contour precision.
+
+    Returns the filled mask.
+    """
+    h, w = binary_walls.shape
+
+    # ── 1. Repair fragmented walls ─────────────────────────────────────
+    kernel = cv2.getStructuringElement(
+        cv2.MORPH_ELLIPSE,
+        (WALL_CLOSE_KSIZE, WALL_CLOSE_KSIZE)
+    )
+    repaired = cv2.morphologyEx(
+        binary_walls,
+        cv2.MORPH_CLOSE,
+        kernel,
+        iterations=WALL_CLOSE_ITER
+    )
+
+    # ── 2. Identify candidate lumen regions ────────────────────────────
+    padded = np.zeros((h + 2, w + 2), dtype=np.uint8)
+    padded[1:h + 1, 1:w + 1] = repaired
+    cv2.floodFill(padded, None, (0, 0), 128)   # 128 = "background" label
+
+    background = padded[1:h + 1, 1:w + 1] == 128
+    candidate_holes = (~background & ~repaired.astype(bool)).astype(np.uint8) * 255
+
+    # ── 3. Filter candidates by shape ─────────────────────────────────
+    labeled = label(candidate_holes)
+    lumen_mask = np.zeros((h, w), dtype=np.uint8)
+
+    for region in regionprops(labeled):
+        if not (LUMEN_AREA_MIN <= region.area <= LUMEN_AREA_MAX):
+            continue
+
+        if region.eccentricity > LUMEN_ECCENTRICITY_MAX:
+            continue
+
+        perim = region.perimeter_crofton
+        circ = (4 * np.pi * region.area) / (perim ** 2) if perim > 1e-6 else 0.0
+
+        if circ < LUMEN_CIRCULARITY_MIN:
+            continue
+
+        lumen_mask[labeled == region.label] = 255
+
+    # ── 4. Expand and merge onto original walls ────────────────────────
+    expand_kernel = cv2.getStructuringElement(
+        cv2.MORPH_ELLIPSE,
+        (LUMEN_EXPAND_KSIZE, LUMEN_EXPAND_KSIZE)
+    )
+    lumen_expanded = cv2.dilate(
+        lumen_mask,
+        expand_kernel,
+        iterations=LUMEN_EXPAND_ITER
+    )
+
+    return cv2.bitwise_or(binary_walls, lumen_expanded)
+
+
+# ─────────────────────────────────────────────
+#  PLUGIN-SUPPORT UTILITIES
+# ─────────────────────────────────────────────
+
+def get_cv2_kernel_shape(shape_name: str):
+    """
+    Convert the kernel shape selected in the QuPath GUI to the corresponding
+    OpenCV structuring element type.
+    """
+    shape_name = shape_name.upper()
+
+    if shape_name == "ELLIPSE":
+        return cv2.MORPH_ELLIPSE
+
+    if shape_name == "RECT":
+        return cv2.MORPH_RECT
+
+    if shape_name == "CROSS":
+        return cv2.MORPH_CROSS
+
+    raise ValueError(f"Unsupported kernel shape: {shape_name}")
+
+
+def save_contours_csv(label_img: np.ndarray, csv_path: Path) -> None:
+    """
+    Save vessel contours in the CSV format expected by the QuPath plugin.
+
+    Output columns:
+      contour_id, point_order, x, y
+
+    The contour_id is matched to the measurement CSV index, so Java can attach
+    area, major/minor axis length, eccentricity, and orientation to each vessel.
+    """
     rows = []
 
-    labels = sorted([x for x in np.unique(label_img) if x != 0])
+    labels = sorted([lab for lab in np.unique(label_img) if lab != 0])
 
     for output_id, lab in enumerate(labels):
         single_mask = (label_img == lab).astype(np.uint8) * 255
@@ -55,6 +168,7 @@ def save_contours_csv(label_img, csv_path):
         if len(cnt) < 3:
             continue
 
+        # Keep the contour close to the segmented object while removing tiny digitisation noise
         epsilon = 0.0000001 * cv2.arcLength(cnt, True)
         approx = cv2.approxPolyDP(cnt, epsilon, True)
 
@@ -70,142 +184,88 @@ def save_contours_csv(label_img, csv_path):
     df.to_csv(csv_path, index=False)
 
 
-def fill_vessel_lumens(binary_walls: np.ndarray) -> np.ndarray:
-    h, w = binary_walls.shape
-
-    kernel = cv2.getStructuringElement(
-        cv2.MORPH_ELLIPSE,
-        (WALL_CLOSE_KSIZE, WALL_CLOSE_KSIZE)
-    )
-
-    repaired = cv2.morphologyEx(
-        binary_walls,
-        cv2.MORPH_CLOSE,
-        kernel,
-        iterations=WALL_CLOSE_ITER
-    )
-
-    padded = np.zeros((h + 2, w + 2), dtype=np.uint8)
-    padded[1:h + 1, 1:w + 1] = repaired
-
-    cv2.floodFill(padded, None, (0, 0), 128)
-
-    background = padded[1:h + 1, 1:w + 1] == 128
-    candidate_holes = (~background & ~repaired.astype(bool)).astype(np.uint8) * 255
-
-    labeled = label(candidate_holes)
-    lumen_mask = np.zeros((h, w), dtype=np.uint8)
-
-    for region in regionprops(labeled):
-        if not (LUMEN_AREA_MIN <= region.area <= LUMEN_AREA_MAX):
-            continue
-
-        if region.eccentricity > LUMEN_ECCENTRICITY_MAX:
-            continue
-
-        perim = region.perimeter_crofton
-        circularity = (4 * np.pi * region.area) / (perim ** 2) if perim > 1e-6 else 0.0
-
-        if circularity < LUMEN_CIRCULARITY_MIN:
-            continue
-
-        lumen_mask[labeled == region.label] = 255
-
-    expand_kernel = cv2.getStructuringElement(
-        cv2.MORPH_ELLIPSE,
-        (LUMEN_EXPAND_KSIZE, LUMEN_EXPAND_KSIZE)
-    )
-
-    lumen_expanded = cv2.dilate(
-        lumen_mask,
-        expand_kernel,
-        iterations=LUMEN_EXPAND_ITER
-    )
-
-    return cv2.bitwise_or(binary_walls, lumen_expanded)
-
-
-def get_cv2_kernel_shape(shape_name: str):
-    shape_name = shape_name.upper()
-
-    if shape_name == "ELLIPSE":
-        return cv2.MORPH_ELLIPSE
-
-    if shape_name == "RECT":
-        return cv2.MORPH_RECT
-
-    if shape_name == "CROSS":
-        return cv2.MORPH_CROSS
-
-    raise ValueError(f"Unsupported kernel shape: {shape_name}")
-
+# ─────────────────────────────────────────────
+#  PER-IMAGE PROCESSING
+# ─────────────────────────────────────────────
 
 def process_image(
-    image_path,
-    output_folder,
-    dilation_kernel_size,
-    dilation_kernel_shape,
-    erosion_kernel_size,
-    threshold_mode="otsu",
-    percentile=None,
-    vessel_area_min=VESSEL_AREA_MIN
-):
-    base_name = Path(image_path).stem
-    image_output_dir = Path(output_folder) / base_name
+    input_path: str,
+    output_dir: str,
+    threshold_mode: str = "otsu",
+    percentile: int | None = None,
+    dilation_kernel_size: tuple[int, int] = (DILATE_KSIZE, DILATE_KSIZE),
+    dilation_kernel_shape=cv2.MORPH_ELLIPSE,
+    erosion_kernel_size: tuple[int, int] = (ERODE_KSIZE, ERODE_KSIZE),
+    vessel_area_min: int = VESSEL_AREA_MIN
+) -> int:
+    """
+    Process a single image: segment vessels and fill their lumens.
+    Returns the number of vessels detected.
+
+    This function keeps the collaborator's vessel/lumen logic, but is also
+    compatible with the QuPath plugin:
+      - input_path and output_dir are passed from Java
+      - morphology parameters are passed from the GUI
+      - outputs include binary mask, overlay, measurements CSV, and contour CSV
+    """
+    base_name = Path(input_path).stem
+    image_output_dir = Path(output_dir) / base_name
     image_output_dir.mkdir(parents=True, exist_ok=True)
 
-    img_bgr = cv2.imread(str(image_path))
+    # ── Step 1: Load image once; derive all needed data from it ────────
+    img_bgr = cv2.imread(input_path)
 
     if img_bgr is None:
-        raise ValueError(f"Could not load image: {image_path}")
+        raise ValueError(f"Could not load image: {input_path}")
 
-    img_float = img_bgr.astype(np.float32) / 255.0
+    # ── Step 2: Convert to CMYK Yellow channel ─────────────────────────
+    img_f = img_bgr.astype(np.float32) / 255.0
+    K = 1 - np.max(img_f, axis=2)
+    Y_channel = ((1 - img_f[:, :, 0] - K) / (1 - K + 1e-10) * 255).astype(np.uint8)
 
-    k_channel = 1 - np.max(img_float, axis=2)
-    y_channel = (
-        (1 - img_float[:, :, 0] - k_channel) /
-        (1 - k_channel + 1e-10) * 255
-    ).astype(np.uint8)
-
+    # ── Step 3: Threshold ──────────────────────────────────────────────
     if threshold_mode == "otsu":
         _, binary = cv2.threshold(
-            y_channel,
+            Y_channel,
             0,
             255,
             cv2.THRESH_BINARY + cv2.THRESH_OTSU
         )
-        print("Thresholding: Otsu")
+        print("  Thresholding: Otsu")
 
     elif threshold_mode == "percentile":
         if percentile is None:
-            raise ValueError("Percentile thresholding selected but no percentile was provided.")
+            raise ValueError("threshold_mode is 'percentile' but no percentile value was provided.")
 
-        threshold_value = int(np.percentile(y_channel, percentile))
+        thresh_value = int(np.percentile(Y_channel, percentile))
         _, binary = cv2.threshold(
-            y_channel,
-            threshold_value,
+            Y_channel,
+            thresh_value,
             255,
             cv2.THRESH_BINARY
         )
-        print(f"Thresholding: {percentile}th percentile, value={threshold_value}")
+        print(f"  Thresholding: {percentile}th percentile (value={thresh_value})")
 
     else:
-        raise ValueError(f"Invalid threshold mode: {threshold_mode}")
+        raise ValueError(f"Invalid threshold_mode: '{threshold_mode}'.")
 
-    kernel_dilate = cv2.getStructuringElement(
+    # ── Step 4: Initial morphological cleanup ─────────────────────────
+    # The dilation kernel size and shape are configurable from the QuPath GUI.
+    kernel_d = cv2.getStructuringElement(
         dilation_kernel_shape,
         dilation_kernel_size
     )
+    dilated = cv2.dilate(binary, kernel_d, iterations=DILATE_ITER)
 
-    dilated = cv2.dilate(binary, kernel_dilate, iterations=1)
-
-    kernel_erode = cv2.getStructuringElement(
+    # The erosion kernel size is configurable from the QuPath GUI.
+    # Erosion shape remains elliptical to preserve the intended biological morphology.
+    kernel_e = cv2.getStructuringElement(
         cv2.MORPH_ELLIPSE,
         erosion_kernel_size
     )
+    eroded = cv2.erode(dilated, kernel_e, iterations=ERODE_ITER)
 
-    eroded = cv2.erode(dilated, kernel_erode, iterations=2)
-
+    # ── Step 5: Contour refinement (keep large vessels only) ───────────
     contours, _ = cv2.findContours(
         eroded,
         cv2.RETR_EXTERNAL,
@@ -221,11 +281,14 @@ def process_image(
 
         cv2.drawContours(wall_mask, [cnt], -1, 255, -1)
 
-    print("Filling vessel lumens...")
+    # ── Step 6: Fill lumens ────────────────────────────────────────────
+    print("  Filling vessel lumens …")
     filled_mask = fill_vessel_lumens(wall_mask)
 
+    # ── Step 7: Final filtering and measurements on filled mask ────────
+    # Filtering is repeated after lumen filling because lumen expansion can
+    # slightly alter connected components.
     label_img_raw = label(filled_mask > 0)
-
     clean_mask = np.zeros_like(filled_mask, dtype=np.uint8)
 
     for region in regionprops(label_img_raw):
@@ -246,99 +309,191 @@ def process_image(
             "orientation"
         ]
     )
-
     measurements_df = pd.DataFrame(props)
 
-    measurements_csv = image_output_dir / f"{base_name}_measurements.csv"
-    measurements_df.to_csv(measurements_csv, index=True)
+    csv_path = image_output_dir / f"{base_name}_measurements.csv"
+    measurements_df.to_csv(csv_path, index=True)
+    print(f"✓ Saved measurements: {csv_path}")
 
-    contours_csv = image_output_dir / "vessel_contours.csv"
-    save_contours_csv(label_img, contours_csv)
+    # QuPath plugin requirement:
+    # Save the polygon contour coordinates so Java can recreate vessels as QuPath objects.
+    contours_csv_path = image_output_dir / "vessel_contours.csv"
+    save_contours_csv(label_img, contours_csv_path)
+    print(f"✓ Saved contours for QuPath: {contours_csv_path}")
 
+    # ── Step 8: Save filled binary mask ───────────────────────────────
     binary_path = image_output_dir / f"{base_name}_binary.png"
-    cv2.imwrite(str(binary_path), clean_mask)
 
+    if not cv2.imwrite(str(binary_path), clean_mask):
+        raise IOError(f"Failed to write binary mask: {binary_path}")
+
+    print(f"✓ Saved filled binary mask: {binary_path}")
+
+    # ── Step 9: Colour overlays ────────────────────────────────────────
+    # Green = full vessel (walls + filled lumens)
     overlay = np.zeros_like(img_bgr)
-    overlay[:, :, 1] = clean_mask
-
+    overlay[:, :, 1] = clean_mask   # green channel → full vessel (same in BGR and RGB)
     blended = cv2.addWeighted(img_bgr, 0.7, overlay, 0.3, 0)
 
     overlay_path = image_output_dir / f"{base_name}_overlay.png"
-    cv2.imwrite(str(overlay_path), blended)
 
+    if not cv2.imwrite(str(overlay_path), blended):
+        raise IOError(f"Failed to write overlay: {overlay_path}")
+
+    print(f"✓ Saved overlay (green=vessel): {overlay_path}")
+
+    # ── Step 10: Statistics ────────────────────────────────────────────
     n_vessels = len(measurements_df)
 
-    print(f"Contours CSV: {contours_csv}")
-    print(f"Measurements CSV: {measurements_csv}")
-    print(f"Binary mask: {binary_path}")
-    print(f"Overlay: {overlay_path}")
-    print(f"Total vessels: {n_vessels}")
+    print(f"\nVessel Statistics for {base_name}:")
+    print(f"  Total vessels    : {n_vessels}")
 
     if n_vessels > 0:
-        print(f"Average area: {measurements_df['area'].mean():.2f}")
-        print(f"Total area: {measurements_df['area'].sum():.2f}")
-        print(f"Average eccentricity: {measurements_df['eccentricity'].mean():.3f}")
-
-    print("VESSEL_SEGMENTATION_SUCCESS")
+        print(f"  Average area     : {measurements_df['area'].mean():.2f}")
+        print(f"  Total area       : {measurements_df['area'].sum():.2f}")
+        print(f"  Avg eccentricity : {measurements_df['eccentricity'].mean():.3f}\n")
+    else:
+        print("  Average area     : N/A")
+        print("  Total area       : 0.00")
+        print("  Avg eccentricity : N/A\n")
 
     return n_vessels
 
 
-def process_folder(
-    input_folder,
-    output_folder,
-    dilation_kernel_size,
-    dilation_kernel_shape,
-    erosion_kernel_size,
-    threshold_mode="otsu",
-    percentile=None,
-    vessel_area_min=VESSEL_AREA_MIN
-):
-    input_path = Path(input_folder)
+# ─────────────────────────────────────────────
+#  FOLDER-LEVEL PROCESSING
+# ─────────────────────────────────────────────
 
-    png_files = sorted(input_path.glob("*.png"), key=natural_sort_key)
+def natural_sort_key(path: Path) -> list:
+    """Sort paths so that e.g. image_2.png comes before image_10.png."""
+    parts = re.split(r"(\d+)", path.name)
+    return [int(p) if p.isdigit() else p.lower() for p in parts]
+
+
+def process_folder(
+    input_folder: str,
+    output_folder: str,
+    threshold_mode: str = "otsu",
+    percentile: int | None = None,
+    dilation_kernel_size: tuple[int, int] = (DILATE_KSIZE, DILATE_KSIZE),
+    dilation_kernel_shape=cv2.MORPH_ELLIPSE,
+    erosion_kernel_size: tuple[int, int] = (ERODE_KSIZE, ERODE_KSIZE),
+    vessel_area_min: int = VESSEL_AREA_MIN
+) -> None:
+    """Process all PNG files in the input folder."""
+    png_files = sorted(Path(input_folder).glob("*.png"), key=natural_sort_key)
 
     if not png_files:
         print(f"No PNG files found in {input_folder}")
         return
 
+    mode_label = f"percentile ({percentile}th)" if threshold_mode == "percentile" else threshold_mode
+
     print(f"Found {len(png_files)} PNG files to process")
-    print(f"Threshold mode: {threshold_mode}")
+    print(f"Threshold mode: {mode_label}")
+    print(f"Dilation kernel size: {dilation_kernel_size}")
+    print(f"Erosion kernel size: {erosion_kernel_size}")
+    print(f"Vessel area minimum: {vessel_area_min}")
     print("=" * 60)
 
     total_vessels = 0
 
     for i, png_file in enumerate(png_files, 1):
-        print(f"Processing [{i}/{len(png_files)}]: {png_file.name}")
+        print(f"\nProcessing [{i}/{len(png_files)}]: {png_file.name}")
         print("-" * 60)
 
-        total_vessels += process_image(
-            image_path=str(png_file),
-            output_folder=output_folder,
-            dilation_kernel_size=dilation_kernel_size,
-            dilation_kernel_shape=dilation_kernel_shape,
-            erosion_kernel_size=erosion_kernel_size,
-            threshold_mode=threshold_mode,
-            percentile=percentile,
-            vessel_area_min=vessel_area_min
-        )
+        try:
+            total_vessels += process_image(
+                str(png_file),
+                output_folder,
+                threshold_mode,
+                percentile,
+                dilation_kernel_size,
+                dilation_kernel_shape,
+                erosion_kernel_size,
+                vessel_area_min
+            )
 
-    print("=" * 60)
-    print("Processing complete.")
+        except (ValueError, IOError) as e:
+            print(f"✗ Error processing {png_file.name}: {e}")
+
+        except Exception:
+            print(f"✗ Unexpected error processing {png_file.name}")
+            raise
+
+    print("\n" + "=" * 60)
+    print("Processing complete!")
     print(f"Total vessels detected across all images: {total_vessels}")
     print(f"Output saved to: {output_folder}")
 
 
-def main():
+# ─────────────────────────────────────────────
+#  ENTRY POINT
+# ─────────────────────────────────────────────
+
+def get_threshold_mode() -> tuple[str, int | None]:
+    """
+    Prompt the user to choose a thresholding method.
+    Returns (mode, percentile) where percentile is None for Otsu mode.
+
+    This function is kept for standalone/script use.
+    The QuPath plugin does not call this interactive prompt.
+    """
+    def prompt_percentile(default: int = 10) -> int:
+        """Prompt for a percentile value in 1–99, with a suggested default."""
+        while True:
+            raw = input(f"  Enter percentile (1–99) [suggested: {default}]: ").strip()
+
+            if raw == "":
+                print(f"→ Selected: {default}th percentile thresholding\n")
+                return default
+
+            if raw.isdigit() and 1 <= int(raw) <= 99:
+                value = int(raw)
+                print(f"→ Selected: {value}th percentile thresholding\n")
+                return value
+
+            print("  Invalid input. Please enter a whole number between 1 and 99.")
+
+    print("\n" + "=" * 60)
+    print("SELECT THRESHOLDING METHOD")
+    print("=" * 60)
+    print("  [1] Otsu thresholding (automatic)")
+    print("  [2] Percentile thresholding (manual)")
+    print("=" * 60)
+
+    while True:
+        choice = input("Enter your choice (1 or 2): ").strip()
+
+        if choice == "1":
+            print("→ Selected: Otsu thresholding\n")
+            return "otsu", None
+
+        if choice == "2":
+            return "percentile", prompt_percentile()
+
+        print("  Invalid input. Please enter 1 or 2.")
+
+
+def main() -> None:
+    """
+    Entry point.
+
+    For standalone use:
+      python vessels_segmentation.py input_folder output_folder
+
+    For QuPath plugin use:
+      Java calls this script with input/output folders and morphology parameters.
+    """
     parser = argparse.ArgumentParser(
-        description="VeSpA vessel segmentation for QuPath plugin"
+        description="VeSpA vessel segmentation for standalone use and QuPath plugin integration"
     )
 
     parser.add_argument("input_folder", type=str)
     parser.add_argument("output_folder", type=str)
 
-    parser.add_argument("--dilation-kernel-width", type=int, default=21)
-    parser.add_argument("--dilation-kernel-height", type=int, default=21)
+    parser.add_argument("--dilation-kernel-width", type=int, default=DILATE_KSIZE)
+    parser.add_argument("--dilation-kernel-height", type=int, default=DILATE_KSIZE)
     parser.add_argument(
         "--dilation-kernel-shape",
         type=str,
@@ -346,8 +501,8 @@ def main():
         choices=["ELLIPSE", "RECT", "CROSS"]
     )
 
-    parser.add_argument("--erosion-kernel-width", type=int, default=3)
-    parser.add_argument("--erosion-kernel-height", type=int, default=3)
+    parser.add_argument("--erosion-kernel-width", type=int, default=ERODE_KSIZE)
+    parser.add_argument("--erosion-kernel-height", type=int, default=ERODE_KSIZE)
 
     parser.add_argument(
         "--threshold-mode",
@@ -355,7 +510,6 @@ def main():
         default="otsu",
         choices=["otsu", "percentile"]
     )
-
     parser.add_argument("--percentile", type=int, default=None)
     parser.add_argument("--vessel-area-min", type=int, default=VESSEL_AREA_MIN)
 
@@ -381,23 +535,19 @@ def main():
         args.erosion_kernel_height
     )
 
-    print(f"Dilation kernel width: {args.dilation_kernel_width}")
-    print(f"Dilation kernel height: {args.dilation_kernel_height}")
-    print(f"Dilation kernel shape: {args.dilation_kernel_shape}")
-    print(f"Erosion kernel width: {args.erosion_kernel_width}")
-    print(f"Erosion kernel height: {args.erosion_kernel_height}")
-    print(f"Vessel area minimum: {args.vessel_area_min}")
-
     process_folder(
         input_folder=str(input_folder),
         output_folder=str(output_folder),
+        threshold_mode=args.threshold_mode,
+        percentile=args.percentile,
         dilation_kernel_size=dilation_kernel_size,
         dilation_kernel_shape=dilation_kernel_shape,
         erosion_kernel_size=erosion_kernel_size,
-        threshold_mode=args.threshold_mode,
-        percentile=args.percentile,
         vessel_area_min=args.vessel_area_min
     )
+
+    # QuPath Java plugin checks this exact string to confirm successful execution.
+    print("VESSEL_SEGMENTATION_SUCCESS")
 
 
 if __name__ == "__main__":
