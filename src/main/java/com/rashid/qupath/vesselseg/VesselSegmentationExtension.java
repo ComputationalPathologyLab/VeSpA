@@ -28,6 +28,7 @@ import javafx.scene.control.TextArea;
 import javafx.scene.control.TextField;
 import javafx.scene.control.TitledPane;
 import javafx.scene.control.ToggleGroup;
+import javafx.scene.control.Tooltip;
 import javafx.scene.image.Image;
 import javafx.scene.image.ImageView;
 import javafx.scene.layout.GridPane;
@@ -282,6 +283,8 @@ public class VesselSegmentationExtension implements QuPathExtension {
 
         ImageView logoView = createLogoView();
         ParameterFields fields = new ParameterFields();
+        fields.percentile.disableProperty().bind(fields.thresholdMode.valueProperty().isNotEqualTo("percentile"));
+        fields.percentile.setStyle("-fx-background-radius: 5; -fx-border-radius: 5;");
 
         Label inputModeLabel = new Label("Input region:");
         ToggleGroup inputModeGroup = new ToggleGroup();
@@ -356,6 +359,11 @@ public class VesselSegmentationExtension implements QuPathExtension {
         Button runButton = new Button("Run");
         Button exitButton = new Button("Exit");
 
+        for (Button button : List.of(defaultButton, resetButton, runButton, exitButton)) {
+            button.setMinWidth(64);
+            button.setStyle("-fx-background-radius: 7; -fx-border-radius: 7; -fx-padding: 5 12 5 12;");
+        }
+
         defaultButton.visibleProperty().bind(additionalOptionsPane.expandedProperty());
         defaultButton.managedProperty().bind(additionalOptionsPane.expandedProperty());
         resetButton.visibleProperty().bind(additionalOptionsPane.expandedProperty());
@@ -407,7 +415,7 @@ public class VesselSegmentationExtension implements QuPathExtension {
 
         VBox root = new VBox(12, topPanels, buttonBar);
         root.setPadding(new Insets(14));
-        root.setStyle("-fx-background-color: #e6e6e6;");
+        root.setStyle("-fx-background-color: linear-gradient(to bottom, #f4f6f8, #e7ebef);");
 
         Scene scene = new Scene(root, WINDOW_WIDTH, COLLAPSED_HEIGHT);
         stage.setScene(scene);
@@ -433,55 +441,99 @@ public class VesselSegmentationExtension implements QuPathExtension {
     }
 
     private String cardStyle() {
-        return "-fx-background-color: #f7f7f7;" +
-                "-fx-border-color: #b8b8b8;" +
+        return "-fx-background-color: #ffffff;" +
+                "-fx-border-color: #cfd6dd;" +
                 "-fx-border-width: 1;" +
-                "-fx-background-radius: 6;" +
-                "-fx-border-radius: 6;";
+                "-fx-background-radius: 10;" +
+                "-fx-border-radius: 10;" +
+                "-fx-effect: dropshadow(gaussian, rgba(0,0,0,0.08), 8, 0, 0, 2);";
     }
 
     private VBox createSection(String title, HBox... rows) {
         Label titleLabel = new Label(title);
-        titleLabel.setStyle("-fx-font-weight: bold; -fx-text-fill: #2c3e50; -fx-font-size: 12px;");
+        titleLabel.setStyle("-fx-font-weight: bold; -fx-text-fill: #243746; -fx-font-size: 12px;");
 
-        VBox box = new VBox(6);
-        box.setPadding(new Insets(10));
+        VBox box = new VBox(8);
+        box.setPadding(new Insets(12, 12, 12, 12));
         box.setStyle("-fx-background-color: #ffffff;" +
-                "-fx-border-color: #d0d0d0;" +
+                "-fx-border-color: #d9dee5;" +
                 "-fx-border-width: 1;" +
-                "-fx-background-radius: 6;" +
-                "-fx-border-radius: 6;");
+                "-fx-background-radius: 10;" +
+                "-fx-border-radius: 10;" +
+                "-fx-effect: dropshadow(gaussian, rgba(0,0,0,0.05), 6, 0, 0, 1);");
+
+        Separator separator = new Separator();
+        separator.setStyle("-fx-background-color: #d9dee5;");
 
         box.getChildren().add(titleLabel);
-        box.getChildren().add(new Separator());
+        box.getChildren().add(separator);
         box.getChildren().addAll(rows);
         return box;
     }
 
     private HBox row(String label, TextField field, String hint) {
         Label l = new Label(label);
-        l.setPrefWidth(160);
+        l.setPrefWidth(185);
+        l.setStyle("-fx-text-fill: #27313a; -fx-font-size: 11px;");
 
-        Label h = new Label(hint);
-        h.setStyle("-fx-text-fill: #666666; -fx-font-size: 10px;");
-        HBox.setHgrow(h, Priority.ALWAYS);
+        field.setPrefWidth(125);
+        field.setStyle("-fx-background-radius: 6;" +
+                "-fx-border-radius: 6;" +
+                "-fx-border-color: #aeb7c2;" +
+                "-fx-background-color: white;" +
+                "-fx-padding: 4 6 4 6;");
 
-        HBox row = new HBox(8, l, field, h);
+        Label help = createHelpIcon(hint);
+
+        Region spacer = new Region();
+        HBox.setHgrow(spacer, Priority.ALWAYS);
+
+        HBox row = new HBox(10, l, field, help, spacer);
         row.setAlignment(Pos.CENTER_LEFT);
         return row;
     }
 
     private HBox row(String label, ComboBox<String> field, String hint) {
         Label l = new Label(label);
-        l.setPrefWidth(160);
+        l.setPrefWidth(185);
+        l.setStyle("-fx-text-fill: #27313a; -fx-font-size: 11px;");
 
-        Label h = new Label(hint);
-        h.setStyle("-fx-text-fill: #666666; -fx-font-size: 10px;");
-        HBox.setHgrow(h, Priority.ALWAYS);
+        field.setPrefWidth(125);
+        field.setStyle("-fx-background-radius: 6;" +
+                "-fx-border-radius: 6;" +
+                "-fx-border-color: #aeb7c2;" +
+                "-fx-background-color: white;" +
+                "-fx-padding: 2 4 2 4;");
 
-        HBox row = new HBox(8, l, field, h);
+        Label help = createHelpIcon(hint);
+
+        Region spacer = new Region();
+        HBox.setHgrow(spacer, Priority.ALWAYS);
+
+        HBox row = new HBox(10, l, field, help, spacer);
         row.setAlignment(Pos.CENTER_LEFT);
         return row;
+    }
+
+    private Label createHelpIcon(String tooltipText) {
+        Label help = new Label("?");
+        help.setMinSize(18, 18);
+        help.setPrefSize(18, 18);
+        help.setMaxSize(18, 18);
+        help.setAlignment(Pos.CENTER);
+        help.setStyle("-fx-background-color: #e8eef5;" +
+                "-fx-text-fill: #42627a;" +
+                "-fx-font-weight: bold;" +
+                "-fx-font-size: 11px;" +
+                "-fx-background-radius: 9;" +
+                "-fx-border-color: #c4d0dc;" +
+                "-fx-border-radius: 9;");
+
+        Tooltip tooltip = new Tooltip(tooltipText);
+        tooltip.setWrapText(true);
+        tooltip.setMaxWidth(280);
+        Tooltip.install(help, tooltip);
+        return help;
     }
 
     private void clearFields(ParameterFields f) {
