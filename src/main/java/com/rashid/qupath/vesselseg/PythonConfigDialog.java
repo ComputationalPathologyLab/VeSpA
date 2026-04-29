@@ -3,6 +3,7 @@ package com.rashid.qupath.vesselseg;
 import javafx.application.Platform;
 import javafx.concurrent.Task;
 import javafx.geometry.Insets;
+import javafx.scene.Node;
 import javafx.scene.Scene;
 import javafx.scene.control.Alert;
 import javafx.scene.control.Button;
@@ -40,6 +41,13 @@ public class PythonConfigDialog {
     private static final String SCIKIT_IMAGE_SPEC = "scikit-image>=0.24,<1";
     private static final String PANDAS_SPEC = "pandas>=2.2,<3";
 
+    private static final String ACCENT = "#0f7f7a";
+    private static final String TEXT = "#17313b";
+    private static final String MUTED = "#60717c";
+    private static final String PANEL = "#ffffff";
+    private static final String BACKGROUND = "#eef4f7";
+    private static final String BORDER = "#d7e2e6";
+
     private final Stage stage;
     private final TextField pythonField;
     private final Label statusLabel;
@@ -63,11 +71,15 @@ public class PythonConfigDialog {
         stage.setTitle("Configure Python - VeSpA");
 
         Label titleLabel = new Label("Python Configuration");
-        titleLabel.setStyle("-fx-font-weight: bold; -fx-font-size: 14px;");
+        titleLabel.setStyle("-fx-font-weight: bold; -fx-font-size: 22px; -fx-text-fill: " + TEXT + ";");
+
+        Label subtitleLabel = new Label("Configure the Python environment used by VeSpA");
+        subtitleLabel.setStyle("-fx-font-size: 12px; -fx-text-fill: " + MUTED + ";");
 
         Label pythonLabel = new Label("Python executable:");
         pythonField = new TextField(PREFS.get(PREF_PYTHON_EXEC, ""));
         pythonField.setPrefWidth(430);
+        pythonField.setStyle(textFieldStyle());
 
         browseButton = new Button("Browse...");
         browseButton.setOnAction(e -> browsePython());
@@ -76,10 +88,15 @@ public class PythonConfigDialog {
         autoDetectButton.setOnAction(e -> autoDetectPython());
 
         statusLabel = new Label();
-        updateStatus("No Python executable configured.", "darkred");
+        String configuredPython = pythonField.getText().trim();
+        if (!configuredPython.isBlank() && new File(configuredPython).exists()) {
+            updateStatus("Valid Python executable.", "green");
+        } else {
+            updateStatus("No Python executable configured.", "darkred");
+        }
 
         progressBar = new ProgressBar(0);
-        progressBar.setPrefWidth(720);
+        progressBar.setMaxWidth(Double.MAX_VALUE);
         progressBar.setVisible(false);
 
         String infoText =
@@ -98,13 +115,15 @@ public class PythonConfigDialog {
         TextArea infoArea = new TextArea(infoText);
         infoArea.setEditable(false);
         infoArea.setWrapText(true);
-        infoArea.setPrefRowCount(10);
+        infoArea.setPrefRowCount(8);
+        infoArea.setStyle(textAreaStyle());
 
         logArea = new TextArea();
         logArea.setEditable(false);
         logArea.setWrapText(true);
-        logArea.setPrefRowCount(10);
+        logArea.setPrefRowCount(8);
         logArea.setPromptText("Logs will appear here...");
+        logArea.setStyle(textAreaStyle());
 
         testButton = new Button("Test");
         testButton.setOnAction(e -> runTestPython());
@@ -124,6 +143,12 @@ public class PythonConfigDialog {
         cancelButton = new Button("Cancel");
         cancelButton.setOnAction(e -> stage.close());
 
+        for (Button button : List.of(browseButton, autoDetectButton, testButton, checkEnvButton, installButton,
+                resetEnvButton, cancelButton)) {
+            button.setStyle(secondaryButtonStyle());
+        }
+        saveButton.setStyle(primaryButtonStyle());
+
         GridPane grid = new GridPane();
         grid.setHgap(10);
         grid.setVgap(10);
@@ -134,23 +159,95 @@ public class PythonConfigDialog {
 
         HBox buttonRow1 = new HBox(10, testButton, checkEnvButton, installButton, resetEnvButton);
         HBox buttonRow2 = new HBox(10, saveButton, cancelButton);
+        buttonRow2.setStyle("-fx-alignment: center-right;");
+
+        VBox pythonPanel = card(
+                new Label("Python executable"),
+                grid,
+                statusLabel,
+                progressBar
+        );
+
+        VBox envPanel = card(
+                new Label("Environment setup"),
+                infoArea,
+                buttonRow1
+        );
+
+        VBox logPanel = card(
+                new Label("Logs"),
+                logArea
+        );
 
         VBox root = new VBox(
                 12,
-                titleLabel,
-                grid,
-                statusLabel,
-                progressBar,
-                new Label("Environment setup"),
-                infoArea,
-                buttonRow1,
-                new Label("Logs"),
-                logArea,
+                new VBox(2, titleLabel, subtitleLabel),
+                pythonPanel,
+                envPanel,
+                logPanel,
                 buttonRow2
         );
         root.setPadding(new Insets(15));
+        root.setStyle("-fx-background-color: " + BACKGROUND + ";");
 
-        stage.setScene(new Scene(root, 800, 650));
+        stage.setScene(new Scene(root, 820, 690));
+        stage.setMinWidth(760);
+        stage.setMinHeight(620);
+    }
+
+    private VBox card(Label title, Node... children) {
+        title.setStyle("-fx-font-weight: bold; -fx-font-size: 12px; -fx-text-fill: " + TEXT + ";");
+
+        VBox box = new VBox(10);
+        box.setPadding(new Insets(14));
+        box.setStyle(cardStyle());
+        box.getChildren().add(title);
+        box.getChildren().addAll(children);
+        return box;
+    }
+
+    private String cardStyle() {
+        return "-fx-background-color: " + PANEL + ";" +
+                "-fx-border-color: " + BORDER + ";" +
+                "-fx-border-width: 1;" +
+                "-fx-background-radius: 8;" +
+                "-fx-border-radius: 8;" +
+                "-fx-effect: dropshadow(gaussian, rgba(18,44,55,0.08), 8, 0, 0, 2);";
+    }
+
+    private String primaryButtonStyle() {
+        return "-fx-background-color: " + ACCENT + ";" +
+                "-fx-text-fill: white;" +
+                "-fx-font-weight: bold;" +
+                "-fx-background-radius: 7;" +
+                "-fx-border-radius: 7;" +
+                "-fx-padding: 7 14 7 14;";
+    }
+
+    private String secondaryButtonStyle() {
+        return "-fx-background-color: #eef5f6;" +
+                "-fx-text-fill: #20424b;" +
+                "-fx-border-color: #bdd0d5;" +
+                "-fx-background-radius: 7;" +
+                "-fx-border-radius: 7;" +
+                "-fx-padding: 7 12 7 12;";
+    }
+
+    private String textFieldStyle() {
+        return "-fx-background-color: white;" +
+                "-fx-border-color: #bdd0d5;" +
+                "-fx-background-radius: 7;" +
+                "-fx-border-radius: 7;" +
+                "-fx-padding: 6 8 6 8;";
+    }
+
+    private String textAreaStyle() {
+        return "-fx-control-inner-background: #f7fafb;" +
+                "-fx-font-family: monospace;" +
+                "-fx-font-size: 11px;" +
+                "-fx-text-fill: #334852;" +
+                "-fx-background-radius: 7;" +
+                "-fx-border-radius: 7;";
     }
 
     public boolean showDialog() {
@@ -578,16 +675,21 @@ public class PythonConfigDialog {
 
     private void runResetEnvironment() {
         File venvDir = getDefaultVenvDir();
+        boolean hasConfiguredPython = !pythonField.getText().trim().isBlank() || !PREFS.get(PREF_PYTHON_EXEC, "").isBlank();
 
-        if (!venvDir.exists()) {
-            showAlert(Alert.AlertType.INFORMATION, "Reset environment", "No VeSpA environment was found.");
+        if (!venvDir.exists() && !hasConfiguredPython) {
+            showAlert(Alert.AlertType.INFORMATION, "Reset environment", "No VeSpA environment or configured Python was found.");
             return;
         }
 
         Alert confirm = new Alert(Alert.AlertType.CONFIRMATION);
         confirm.setTitle("Reset environment");
-        confirm.setHeaderText("Delete VeSpA environment?");
-        confirm.setContentText("This will remove:\n" + venvDir.getAbsolutePath());
+        confirm.setHeaderText("Reset VeSpA Python configuration?");
+        String resetMessage = "This will clear the configured Python executable.";
+        if (venvDir.exists()) {
+            resetMessage += "\n\nIt will also remove:\n" + venvDir.getAbsolutePath();
+        }
+        confirm.setContentText(resetMessage);
 
         confirm.showAndWait().ifPresent(response -> {
             if (response == ButtonType.OK) {
@@ -597,21 +699,23 @@ public class PythonConfigDialog {
                         setBusy(true, "Removing VeSpA environment...");
                         updateProgress(0.25, 1.0);
 
-                        deleteRecursively(venvDir);
+                        boolean removedVenv = venvDir.exists();
+                        if (venvDir.exists()) {
+                            deleteRecursively(venvDir);
+                        }
 
                         updateProgress(1.0, 1.0);
 
                         Platform.runLater(() -> {
-                            appendLog("Removed environment: " + venvDir.getAbsolutePath());
-
-                            String current = pythonField.getText().trim();
-                            String venvPython = getVenvPythonPath(venvDir);
-                            if (current.equals(venvPython)) {
-                                pythonField.clear();
-                                PREFS.remove(PREF_PYTHON_EXEC);
+                            if (removedVenv) {
+                                appendLog("Removed environment: " + venvDir.getAbsolutePath());
+                            } else {
+                                appendLog("Cleared configured Python executable.");
                             }
 
-                            updateStatus("VeSpA environment removed.", "darkorange");
+                            pythonField.clear();
+                            PREFS.remove(PREF_PYTHON_EXEC);
+                            updateStatus("Python configuration reset.", "darkorange");
                             setBusy(false, null);
                         });
 
@@ -687,8 +791,16 @@ public class PythonConfigDialog {
 
     private void updateStatus(String text, String color) {
         Platform.runLater(() -> {
+            boolean ok = "green".equalsIgnoreCase(color);
+            boolean warning = "darkorange".equalsIgnoreCase(color);
             statusLabel.setText(text);
-            statusLabel.setStyle("-fx-text-fill: " + color + ";");
+            statusLabel.setStyle("-fx-background-color: " + (ok ? "#dff4ee" : warning ? "#fff8e8" : "#fff0f0") + ";" +
+                    "-fx-text-fill: " + (ok ? "#12664f" : warning ? "#805b00" : "#9f2d2d") + ";" +
+                    "-fx-font-weight: bold;" +
+                    "-fx-background-radius: 8;" +
+                    "-fx-border-color: " + (ok ? "#b7ded3" : warning ? "#efd9a4" : "#e4b7b7") + ";" +
+                    "-fx-border-radius: 8;" +
+                    "-fx-padding: 8 10 8 10;");
         });
     }
 
@@ -730,17 +842,54 @@ public class PythonConfigDialog {
         }
 
         PREFS.put(PREF_PYTHON_EXEC, python);
+        updateStatus("Valid Python executable.", "green");
         saved = true;
         stage.close();
     }
 
     private void showAlert(Alert.AlertType type, String title, String content) {
-        Alert alert = new Alert(type);
-        alert.setTitle(title);
-        alert.setHeaderText(null);
-        alert.setContentText(content);
-        alert.setResizable(true);
-        alert.showAndWait();
+        Stage dialog = new Stage();
+        dialog.initOwner(stage);
+        dialog.initModality(Modality.WINDOW_MODAL);
+        dialog.setTitle(title);
+
+        Label titleLabel = new Label(title);
+        titleLabel.setStyle("-fx-font-size: 15px; -fx-font-weight: bold; -fx-text-fill: " + TEXT + ";");
+
+        Label contentLabel = new Label(content);
+        contentLabel.setWrapText(true);
+        contentLabel.setStyle("-fx-font-size: 12px; -fx-text-fill: #334852;");
+
+        Label icon = new Label(type == Alert.AlertType.INFORMATION ? "i" : "!");
+        icon.setMinSize(42, 42);
+        icon.setPrefSize(42, 42);
+        icon.setAlignment(javafx.geometry.Pos.CENTER);
+        boolean error = type == Alert.AlertType.ERROR;
+        icon.setStyle("-fx-background-color: " + (error ? "#fff0f0" : "#dff4ee") + ";" +
+                "-fx-text-fill: " + (error ? "#9f2d2d" : "#12664f") + ";" +
+                "-fx-font-size: 24px;" +
+                "-fx-font-weight: bold;" +
+                "-fx-background-radius: 21;" +
+                "-fx-border-color: " + (error ? "#e4b7b7" : "#b7ded3") + ";" +
+                "-fx-border-radius: 21;");
+
+        Button okButton = new Button("OK");
+        okButton.setStyle(primaryButtonStyle());
+        okButton.setOnAction(e -> dialog.close());
+
+        HBox body = new HBox(16, icon, new VBox(8, titleLabel, contentLabel));
+        body.setAlignment(javafx.geometry.Pos.CENTER_LEFT);
+
+        HBox footer = new HBox(okButton);
+        footer.setAlignment(javafx.geometry.Pos.CENTER_RIGHT);
+
+        VBox root = new VBox(18, body, footer);
+        root.setPadding(new Insets(18));
+        root.setStyle("-fx-background-color: " + BACKGROUND + ";");
+
+        dialog.setScene(new Scene(root, 480, 190));
+        dialog.setResizable(false);
+        dialog.showAndWait();
     }
 
     private static class ProcessResult {

@@ -12,6 +12,7 @@ import qupath.lib.regions.RegionRequest;
 import qupath.lib.roi.ROIs;
 import qupath.lib.roi.interfaces.ROI;
 
+import javafx.application.Platform;
 import javafx.collections.FXCollections;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
@@ -21,6 +22,7 @@ import javafx.scene.control.Button;
 import javafx.scene.control.ComboBox;
 import javafx.scene.control.Label;
 import javafx.scene.control.MenuItem;
+import javafx.scene.control.ProgressBar;
 import javafx.scene.control.RadioButton;
 import javafx.scene.control.ScrollPane;
 import javafx.scene.control.Separator;
@@ -36,6 +38,7 @@ import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.Region;
 import javafx.scene.layout.VBox;
+import javafx.stage.Screen;
 import javafx.stage.Stage;
 
 import java.awt.image.BufferedImage;
@@ -51,6 +54,9 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.prefs.Preferences;
 
 import javax.imageio.ImageIO;
@@ -89,9 +95,8 @@ public class VesselSegmentationExtension implements QuPathExtension {
     private static final String DEFAULT_THRESHOLD_MODE = "otsu";
     private static final int DEFAULT_PERCENTILE = 10;
 
-    private static final double WINDOW_WIDTH = 720;
-    private static final double COLLAPSED_HEIGHT = 300;
-    private static final double EXPANDED_HEIGHT = 650;
+    private static final double WINDOW_WIDTH = 980;
+    private static final double WINDOW_HEIGHT = 820;
 
 
     private static class ExportTask {
@@ -101,19 +106,22 @@ public class VesselSegmentationExtension implements QuPathExtension {
         ImagePlane plane;
         PathObject parentObject;
         ROI selectedROI;
+        File inputDir;
 
         ExportTask(String baseName,
                    double xOffset,
                    double yOffset,
                    ImagePlane plane,
                    PathObject parentObject,
-                   ROI selectedROI) {
+                   ROI selectedROI,
+                   File inputDir) {
             this.baseName = baseName;
             this.xOffset = xOffset;
             this.yOffset = yOffset;
             this.plane = plane;
             this.parentObject = parentObject;
             this.selectedROI = selectedROI;
+            this.inputDir = inputDir;
         }
     }
 
@@ -260,6 +268,102 @@ public class VesselSegmentationExtension implements QuPathExtension {
         int vesselAreaMin;
     }
 
+    private enum SegmentationPreset {
+        BALANCED(
+                "Balanced",
+                "General purpose settings for typical vessel segmentation.",
+                DEFAULT_LUMEN_AREA_MIN, DEFAULT_LUMEN_AREA_MAX, DEFAULT_LUMEN_CIRCULARITY_MIN, DEFAULT_LUMEN_ECCENTRICITY_MAX,
+                DEFAULT_WALL_CLOSE_KSIZE, DEFAULT_WALL_CLOSE_ITER,
+                DEFAULT_DILATION_WIDTH, DEFAULT_DILATION_HEIGHT, DEFAULT_DILATION_ITER,
+                DEFAULT_EROSION_WIDTH, DEFAULT_EROSION_HEIGHT, DEFAULT_EROSION_ITER,
+                DEFAULT_KERNEL_SHAPE, DEFAULT_LUMEN_EXPAND_KSIZE, DEFAULT_LUMEN_EXPAND_ITER, DEFAULT_VESSEL_AREA_MIN
+        ),
+        SENSITIVE(
+                "Sensitive",
+                "Finds smaller or weaker vessels, with a higher chance of extra detections.",
+                120, 100000, 0.12, 0.99,
+                30, 2,
+                23, 23, 1,
+                3, 3, 1,
+                "ELLIPSE", 5, 3, 250
+        ),
+        FRAGMENTED_WALLS(
+                "Fragmented walls",
+                "Repairs broken vessel boundaries before lumen filling.",
+                200, 100000, 0.16, 0.99,
+                38, 3,
+                25, 25, 1,
+                3, 3, 2,
+                "ELLIPSE", 7, 4, 450
+        ),
+        STRICT_CLEANUP(
+                "Strict cleanup",
+                "Keeps stronger objects and reduces noise-prone detections.",
+                300, 60000, 0.28, 0.94,
+                24, 1,
+                17, 17, 1,
+                5, 5, 2,
+                "ELLIPSE", 3, 2, 900
+        );
+
+        final String label;
+        final String description;
+        final int lumenAreaMin;
+        final int lumenAreaMax;
+        final double lumenCircularityMin;
+        final double lumenEccentricityMax;
+        final int wallCloseKsize;
+        final int wallCloseIter;
+        final int dilationWidth;
+        final int dilationHeight;
+        final int dilationIter;
+        final int erosionWidth;
+        final int erosionHeight;
+        final int erosionIter;
+        final String kernelShape;
+        final int lumenExpandKsize;
+        final int lumenExpandIter;
+        final int vesselAreaMin;
+
+        SegmentationPreset(String label,
+                           String description,
+                           int lumenAreaMin,
+                           int lumenAreaMax,
+                           double lumenCircularityMin,
+                           double lumenEccentricityMax,
+                           int wallCloseKsize,
+                           int wallCloseIter,
+                           int dilationWidth,
+                           int dilationHeight,
+                           int dilationIter,
+                           int erosionWidth,
+                           int erosionHeight,
+                           int erosionIter,
+                           String kernelShape,
+                           int lumenExpandKsize,
+                           int lumenExpandIter,
+                           int vesselAreaMin) {
+            this.label = label;
+            this.description = description;
+            this.lumenAreaMin = lumenAreaMin;
+            this.lumenAreaMax = lumenAreaMax;
+            this.lumenCircularityMin = lumenCircularityMin;
+            this.lumenEccentricityMax = lumenEccentricityMax;
+            this.wallCloseKsize = wallCloseKsize;
+            this.wallCloseIter = wallCloseIter;
+            this.dilationWidth = dilationWidth;
+            this.dilationHeight = dilationHeight;
+            this.dilationIter = dilationIter;
+            this.erosionWidth = erosionWidth;
+            this.erosionHeight = erosionHeight;
+            this.erosionIter = erosionIter;
+            this.kernelShape = kernelShape;
+            this.lumenExpandKsize = lumenExpandKsize;
+            this.lumenExpandIter = lumenExpandIter;
+            this.vesselAreaMin = vesselAreaMin;
+        }
+    }
+
     @Override
     public void installExtension(QuPathGUI qupath) {
         var menu = qupath.getMenu("Extensions > Vessel Segmentation", true);
@@ -267,64 +371,94 @@ public class VesselSegmentationExtension implements QuPathExtension {
         MenuItem runItem = new MenuItem("Run Vessel Segmentation");
         runItem.setOnAction(e -> openWindow(qupath));
 
-        MenuItem configItem = new MenuItem("Configure Python - VeSpA");
-        configItem.setOnAction(e -> {
-            PythonConfigDialog dialog = new PythonConfigDialog();
-            dialog.showDialog();
-        });
-
         menu.getItems().add(runItem);
-        menu.getItems().add(configItem);
     }
 
     private void openWindow(QuPathGUI qupath) {
         Stage stage = new Stage();
-        stage.setTitle("Vessel Spatial Analysis");
+        stage.setTitle("VeSpA - Vessel Spatial Analysis");
 
         ImageView logoView = createLogoView();
         ParameterFields fields = new ParameterFields();
-        fields.percentile.disableProperty().bind(fields.thresholdMode.valueProperty().isNotEqualTo("percentile"));
-        fields.percentile.setStyle("-fx-background-radius: 5; -fx-border-radius: 5;");
+        applyPreset(fields, SegmentationPreset.BALANCED);
 
-        Label inputModeLabel = new Label("Input region:");
         ToggleGroup inputModeGroup = new ToggleGroup();
 
         RadioButton selectedAnnotationButton = new RadioButton("Selected annotation(s)");
         selectedAnnotationButton.setToggleGroup(inputModeGroup);
         selectedAnnotationButton.setSelected(true);
+        selectedAnnotationButton.setMinWidth(165);
+        selectedAnnotationButton.setStyle("-fx-text-fill: #27313a;");
 
         RadioButton wholeImageButton = new RadioButton("Whole image");
         wholeImageButton.setToggleGroup(inputModeGroup);
+        wholeImageButton.setMinWidth(115);
+        wholeImageButton.setStyle("-fx-text-fill: #27313a;");
 
-        GridPane inputGrid = new GridPane();
-        inputGrid.setHgap(12);
-        inputGrid.setVgap(10);
-        inputGrid.add(inputModeLabel, 0, 0);
-        inputGrid.add(selectedAnnotationButton, 1, 0);
-        inputGrid.add(wholeImageButton, 1, 1);
+        int selectedAnnotationCount = countSelectedAnnotations(qupath);
+        boolean pythonReady = isPythonConfigured();
 
-        VBox inputPanel = new VBox(8, inputGrid);
-        inputPanel.setPadding(new Insets(14));
-        inputPanel.setStyle(cardStyle());
+        Label titleLabel = new Label("Vessel Spatial Analysis");
+        titleLabel.setStyle("-fx-font-size: 22px; -fx-font-weight: bold; -fx-text-fill: #162a36;");
 
-        VBox parametersBox = new VBox(10);
-        parametersBox.setPadding(new Insets(10));
-        parametersBox.getChildren().addAll(
-                createSection("Thresholding",
-                        row("Threshold mode", fields.thresholdMode, "Otsu is automatic; percentile uses the value below"),
-                        row("Percentile value", fields.percentile, "used only when threshold mode is percentile, usually 10")
-                ),
-                createSection("Lumen detection",
+        Label subtitleLabel = new Label("Annotation-based vessel segmentation inside QuPath");
+        subtitleLabel.setStyle("-fx-font-size: 12px; -fx-text-fill: #60717c;");
+
+        Label pythonChip = statusChip(pythonReady ? "Python Ready" : "Python Missing", pythonReady);
+        Region headerSpacer = new Region();
+        HBox.setHgrow(headerSpacer, Priority.ALWAYS);
+        HBox header = new HBox(12, new VBox(2, titleLabel, subtitleLabel), headerSpacer, pythonChip);
+        header.setAlignment(Pos.CENTER_LEFT);
+
+        HBox inputModeRow = new HBox(16, selectedAnnotationButton, wholeImageButton);
+        inputModeRow.setMinWidth(320);
+        inputModeRow.setPrefWidth(360);
+        inputModeRow.setAlignment(Pos.CENTER_LEFT);
+
+        VBox inputPanel = createSection("Input Region",
+                row("Mode", inputModeRow, "Choose the image region used for segmentation"),
+                row("Current selection", new Label(selectedAnnotationCount + " annotation(s) selected"), "Detected from QuPath's current selection")
+        );
+
+        Label presetDescription = new Label(SegmentationPreset.BALANCED.description);
+        presetDescription.setWrapText(true);
+        presetDescription.setStyle("-fx-text-fill: #536671; -fx-font-size: 11px;");
+
+        Button balancedButton = presetButton(SegmentationPreset.BALANCED.label);
+        Button sensitiveButton = presetButton(SegmentationPreset.SENSITIVE.label);
+        Button fragmentedButton = presetButton(SegmentationPreset.FRAGMENTED_WALLS.label);
+        Button strictButton = presetButton(SegmentationPreset.STRICT_CLEANUP.label);
+        List<Button> presetButtons = List.of(balancedButton, sensitiveButton, fragmentedButton, strictButton);
+
+        balancedButton.setOnAction(e -> selectPreset(fields, SegmentationPreset.BALANCED, presetDescription, presetButtons, balancedButton));
+        sensitiveButton.setOnAction(e -> selectPreset(fields, SegmentationPreset.SENSITIVE, presetDescription, presetButtons, sensitiveButton));
+        fragmentedButton.setOnAction(e -> selectPreset(fields, SegmentationPreset.FRAGMENTED_WALLS, presetDescription, presetButtons, fragmentedButton));
+        strictButton.setOnAction(e -> selectPreset(fields, SegmentationPreset.STRICT_CLEANUP, presetDescription, presetButtons, strictButton));
+        styleSelectedPreset(presetButtons, balancedButton);
+
+        VBox presetPanel = createSection("Segmentation Preset",
+                row("Preset", new HBox(8, balancedButton, sensitiveButton, fragmentedButton, strictButton), "Presets fill the existing parameter fields"),
+                row("Behavior", presetDescription, "The selected preset description")
+        );
+
+        VBox quickControlsPanel = createSection("Quick Controls",
+                row("Threshold mode", fields.thresholdMode, "Otsu is automatic; percentile uses the value below"),
+                row("Percentile value", fields.percentile, "Used only when threshold mode is percentile"),
+                row("Minimum vessel area", fields.vesselAreaMin, "Remove small connected components")
+        );
+
+        VBox advancedParameters = new VBox(10,
+                createSection("Lumen Detection",
                         row("Min area (px²)", fields.lumenAreaMin, "ignore tiny noise holes"),
                         row("Max area (px²)", fields.lumenAreaMax, "ignore artefactually large holes"),
                         row("Circularity min", fields.lumenCircularityMin, "low values allow elongated/irregular lumens"),
                         row("Eccentricity max", fields.lumenEccentricityMax, "reject near-linear artefacts")
                 ),
-                createSection("Wall repair before lumen detection",
+                createSection("Wall Repair",
                         row("Closing kernel size", fields.wallCloseKsize, "increase if vessel walls are fragmented"),
                         row("Closing iterations", fields.wallCloseIter, "increase to improve wall closing")
                 ),
-                createSection("Initial morphological cleanup",
+                createSection("Morphology",
                         row("Dilation width", fields.dilationWidth, "initial binary cleanup"),
                         row("Dilation height", fields.dilationHeight, "initial binary cleanup"),
                         row("Dilation iterations", fields.dilationIter, "number of dilation passes"),
@@ -333,44 +467,105 @@ public class VesselSegmentationExtension implements QuPathExtension {
                         row("Erosion height", fields.erosionHeight, "boundary restoration"),
                         row("Erosion iterations", fields.erosionIter, "number of erosion passes")
                 ),
-                createSection("Lumen expansion",
+                createSection("Lumen Expansion",
                         row("Expansion kernel size", fields.lumenExpandKsize, "merge lumen onto inner wall boundary"),
                         row("Expansion iterations", fields.lumenExpandIter, "increase to bridge larger inner-wall gaps")
-                ),
-                createSection("Vessel filtering",
-                        row("Minimum vessel area (px²)", fields.vesselAreaMin, "remove small connected components")
                 )
         );
 
-        ScrollPane scrollPane = new ScrollPane(parametersBox);
-        scrollPane.setFitToWidth(true);
-        scrollPane.setPrefViewportHeight(360);
-        scrollPane.setStyle("-fx-background-color: transparent; -fx-background: transparent;");
+        ScrollPane advancedScrollPane = new ScrollPane(advancedParameters);
+        advancedScrollPane.setFitToWidth(true);
+        advancedScrollPane.setPrefViewportHeight(210);
+        advancedScrollPane.setStyle("-fx-background-color: transparent; -fx-background: transparent;");
 
-        TitledPane additionalOptionsPane = new TitledPane("Additional options", scrollPane);
-        additionalOptionsPane.setExpanded(false);
-        additionalOptionsPane.setAnimated(false);
+        TitledPane advancedPane = new TitledPane("Advanced Tuning", advancedScrollPane);
+        advancedPane.setExpanded(false);
+        advancedPane.setAnimated(false);
+        advancedPane.setStyle("-fx-font-weight: bold;");
 
-        VBox optionsPanel = new VBox(additionalOptionsPane);
-        optionsPanel.setStyle(cardStyle());
+        ProgressBar progressBar = new ProgressBar(0);
+        progressBar.setMaxWidth(Double.MAX_VALUE);
+        Label progressLabel = new Label("0%");
+        progressLabel.setMinWidth(82);
+        progressLabel.setStyle("-fx-text-fill: #536671; -fx-font-size: 11px;");
+        HBox progressBox = new HBox(10, progressBar, progressLabel);
+        progressBox.setAlignment(Pos.CENTER_LEFT);
+        progressBox.setPrefWidth(520);
+        progressBox.setMaxWidth(Double.MAX_VALUE);
+        HBox.setHgrow(progressBar, Priority.ALWAYS);
 
-        Button defaultButton = new Button("Default");
+        TextArea logPreview = new TextArea("Ready. Choose a region and run segmentation.");
+        logPreview.setEditable(false);
+        logPreview.setWrapText(true);
+        logPreview.setPrefRowCount(2);
+        logPreview.setPrefWidth(520);
+        logPreview.setMaxWidth(Double.MAX_VALUE);
+        logPreview.setStyle("-fx-control-inner-background: #f7fafb; -fx-font-family: monospace; -fx-font-size: 11px;");
+
+        Button runButton = new Button("Run Segmentation");
         Button resetButton = new Button("Reset");
-        Button runButton = new Button("Run");
         Button exitButton = new Button("Exit");
+        runButton.setStyle(primaryButtonStyle());
+        resetButton.setStyle(secondaryButtonStyle());
+        exitButton.setStyle(secondaryButtonStyle());
+        runButton.setMaxWidth(Double.MAX_VALUE);
 
-        for (Button button : List.of(defaultButton, resetButton, runButton, exitButton)) {
-            button.setMinWidth(64);
-            button.setStyle("-fx-background-radius: 7; -fx-border-radius: 7; -fx-padding: 5 12 5 12;");
-        }
+        VBox runPanel = createSection("Run",
+                row("Action", new HBox(10, runButton, resetButton, exitButton), "Start segmentation or reset values"),
+                rowWide("Progress", progressBox, "Updates after each annotation completes"),
+                rowWide("Log", logPreview, "Compact run status")
+        );
 
-        defaultButton.visibleProperty().bind(additionalOptionsPane.expandedProperty());
-        defaultButton.managedProperty().bind(additionalOptionsPane.expandedProperty());
-        resetButton.visibleProperty().bind(additionalOptionsPane.expandedProperty());
-        resetButton.managedProperty().bind(additionalOptionsPane.expandedProperty());
+        Button configButton = new Button("Configure Python");
+        configButton.setStyle(secondaryButtonStyle());
 
-        defaultButton.setOnAction(e -> fields.setDefaults());
-        resetButton.setOnAction(e -> clearFields(fields));
+        VBox imageStatusCard = statusCard("Image", qupath.getImageData() == null ? "No image open" : "Image open", qupath.getImageData() != null);
+        VBox selectionStatusCard = statusCard("Selection", selectedAnnotationCount + " annotation(s)", selectedAnnotationCount > 0);
+        VBox pythonStatusCard = statusCard("Python", pythonReady ? "Ready" : "Needs setup", pythonReady);
+
+        VBox sidebar = new VBox(14,
+                logoView,
+                new Label("VeSpA"),
+                imageStatusCard,
+                selectionStatusCard,
+                pythonStatusCard,
+                configButton,
+                new Label("v0.0.1 GUI prototype")
+        );
+
+        configButton.setOnAction(e -> {
+            PythonConfigDialog dialog = new PythonConfigDialog();
+            dialog.showDialog();
+            refreshPythonStatus(pythonChip, pythonStatusCard);
+        });
+        sidebar.setAlignment(Pos.TOP_CENTER);
+        sidebar.setPadding(new Insets(12));
+        sidebar.setPrefWidth(190);
+        sidebar.setStyle("-fx-background-color: #ffffff;" +
+                "-fx-border-color: #d7e0e5;" +
+                "-fx-border-width: 0 1 0 0;");
+        sidebar.getChildren().get(1).setStyle("-fx-font-size: 18px; -fx-font-weight: bold; -fx-text-fill: #17313b;");
+
+        VBox mainPanel = new VBox(10, header, inputPanel, presetPanel, quickControlsPanel, runPanel, advancedPane);
+        mainPanel.setPadding(new Insets(14));
+        HBox.setHgrow(mainPanel, Priority.ALWAYS);
+
+        ScrollPane mainScrollPane = new ScrollPane(mainPanel);
+        mainScrollPane.setFitToWidth(true);
+        mainScrollPane.setStyle("-fx-background-color: transparent; -fx-background: transparent;");
+        HBox.setHgrow(mainScrollPane, Priority.ALWAYS);
+
+        HBox root = new HBox(sidebar, mainScrollPane);
+        root.setStyle("-fx-background-color: #eef4f7;");
+
+        resetButton.setOnAction(e -> {
+            applyPreset(fields, SegmentationPreset.BALANCED);
+            presetDescription.setText(SegmentationPreset.BALANCED.description);
+            styleSelectedPreset(presetButtons, balancedButton);
+            progressBar.setProgress(0);
+            progressLabel.setText("0%");
+            logPreview.setText("Reset to Balanced preset.");
+        });
         exitButton.setOnAction(e -> stage.close());
 
         runButton.setOnAction(e -> {
@@ -383,59 +578,29 @@ public class VesselSegmentationExtension implements QuPathExtension {
             }
 
             boolean useSelectedAnnotations = selectedAnnotationButton.isSelected();
-            runSegmentation(qupath, params, useSelectedAnnotations);
+            runSegmentation(
+                    qupath,
+                    params,
+                    useSelectedAnnotations,
+                    progressBar,
+                    progressLabel,
+                    logPreview,
+                    List.of(runButton, resetButton, exitButton, configButton)
+            );
         });
 
-        VBox rightPanel = new VBox(12, inputPanel, optionsPanel);
-        rightPanel.setAlignment(Pos.TOP_LEFT);
-        rightPanel.setFillWidth(true);
-        HBox.setHgrow(rightPanel, Priority.ALWAYS);
-
-        VBox leftPanel = new VBox(10, logoView);
-        leftPanel.setAlignment(Pos.TOP_CENTER);
-        leftPanel.setPadding(new Insets(22, 4, 0, 4));
-        leftPanel.setPrefWidth(135);
-        leftPanel.setMinWidth(135);
-        leftPanel.setMaxWidth(135);
-
-        HBox topPanels = new HBox(14, leftPanel, rightPanel);
-        topPanels.setAlignment(Pos.TOP_LEFT);
-
-        Region spacerLeft = new Region();
-        Region spacerRight = new Region();
-        HBox.setHgrow(spacerLeft, Priority.ALWAYS);
-        HBox.setHgrow(spacerRight, Priority.ALWAYS);
-
-        HBox actionButtons = new HBox(10, runButton, exitButton);
-        actionButtons.setAlignment(Pos.CENTER);
-
-        HBox buttonBar = new HBox(10, defaultButton, resetButton, spacerLeft, actionButtons, spacerRight);
-        buttonBar.setAlignment(Pos.CENTER);
-        buttonBar.setPadding(new Insets(4, 0, 0, 0));
-
-        VBox root = new VBox(12, topPanels, buttonBar);
-        root.setPadding(new Insets(14));
-        root.setStyle("-fx-background-color: linear-gradient(to bottom, #f4f6f8, #e7ebef);");
-
-        Scene scene = new Scene(root, WINDOW_WIDTH, COLLAPSED_HEIGHT);
+        Scene scene = new Scene(root, WINDOW_WIDTH, WINDOW_HEIGHT);
         stage.setScene(scene);
 
-        stage.setResizable(false);
-        stage.setWidth(WINDOW_WIDTH);
-        stage.setMinWidth(WINDOW_WIDTH);
-        stage.setMaxWidth(WINDOW_WIDTH);
-
-        stage.setHeight(COLLAPSED_HEIGHT);
-        stage.setMinHeight(COLLAPSED_HEIGHT);
-        stage.setMaxHeight(EXPANDED_HEIGHT);
+        var visualBounds = Screen.getPrimary().getVisualBounds();
+        stage.setResizable(true);
+        stage.setMinWidth(760);
+        stage.setMinHeight(560);
+        stage.setWidth(Math.min(WINDOW_WIDTH, visualBounds.getWidth() * 0.98));
+        stage.setHeight(Math.min(WINDOW_HEIGHT, visualBounds.getHeight() * 0.96));
 
         stage.setMaximized(false);
         stage.centerOnScreen();
-
-        additionalOptionsPane.expandedProperty().addListener((obs, oldVal, expanded) -> {
-            stage.setHeight(expanded ? EXPANDED_HEIGHT : COLLAPSED_HEIGHT);
-            stage.centerOnScreen();
-        });
 
         stage.show();
     }
@@ -444,9 +609,249 @@ public class VesselSegmentationExtension implements QuPathExtension {
         return "-fx-background-color: #ffffff;" +
                 "-fx-border-color: #cfd6dd;" +
                 "-fx-border-width: 1;" +
-                "-fx-background-radius: 10;" +
-                "-fx-border-radius: 10;" +
-                "-fx-effect: dropshadow(gaussian, rgba(0,0,0,0.08), 8, 0, 0, 2);";
+                "-fx-background-radius: 8;" +
+                "-fx-border-radius: 8;" +
+                "-fx-effect: dropshadow(gaussian, rgba(18,44,55,0.08), 8, 0, 0, 2);";
+    }
+
+    private String primaryButtonStyle() {
+        return "-fx-background-color: #0f7f7a;" +
+                "-fx-text-fill: white;" +
+                "-fx-font-weight: bold;" +
+                "-fx-background-radius: 7;" +
+                "-fx-border-radius: 7;" +
+                "-fx-padding: 7 14 7 14;";
+    }
+
+    private String secondaryButtonStyle() {
+        return "-fx-background-color: #eef5f6;" +
+                "-fx-text-fill: #20424b;" +
+                "-fx-border-color: #bdd0d5;" +
+                "-fx-background-radius: 7;" +
+                "-fx-border-radius: 7;" +
+                "-fx-padding: 7 12 7 12;";
+    }
+
+    private Button presetButton(String label) {
+        Button button = new Button(label);
+        button.setStyle(presetButtonStyle(false));
+        button.setMinWidth(118);
+        button.setPrefWidth(label.length() > 14 ? 150 : 118);
+        return button;
+    }
+
+    private String presetButtonStyle(boolean selected) {
+        if (selected) {
+            return "-fx-background-color: #0f7f7a;" +
+                    "-fx-text-fill: white;" +
+                    "-fx-font-weight: bold;" +
+                    "-fx-background-radius: 7;" +
+                    "-fx-border-radius: 7;" +
+                    "-fx-padding: 6 10 6 10;";
+        }
+
+        return "-fx-background-color: #f6fafb;" +
+                "-fx-text-fill: #24444d;" +
+                "-fx-border-color: #c6d7dc;" +
+                "-fx-background-radius: 7;" +
+                "-fx-border-radius: 7;" +
+                "-fx-padding: 6 10 6 10;";
+    }
+
+    private void selectPreset(ParameterFields fields,
+                              SegmentationPreset preset,
+                              Label presetDescription,
+                              List<Button> presetButtons,
+                              Button selectedButton) {
+        applyPreset(fields, preset);
+        presetDescription.setText(preset.description);
+        styleSelectedPreset(presetButtons, selectedButton);
+    }
+
+    private void styleSelectedPreset(List<Button> presetButtons, Button selectedButton) {
+        for (Button button : presetButtons) {
+            button.setStyle(presetButtonStyle(button == selectedButton));
+        }
+    }
+
+    private void applyPreset(ParameterFields fields, SegmentationPreset preset) {
+        fields.thresholdMode.setValue(DEFAULT_THRESHOLD_MODE);
+        fields.percentile.setText(String.valueOf(DEFAULT_PERCENTILE));
+
+        fields.lumenAreaMin.setText(String.valueOf(preset.lumenAreaMin));
+        fields.lumenAreaMax.setText(String.valueOf(preset.lumenAreaMax));
+        fields.lumenCircularityMin.setText(String.valueOf(preset.lumenCircularityMin));
+        fields.lumenEccentricityMax.setText(String.valueOf(preset.lumenEccentricityMax));
+
+        fields.wallCloseKsize.setText(String.valueOf(preset.wallCloseKsize));
+        fields.wallCloseIter.setText(String.valueOf(preset.wallCloseIter));
+
+        fields.dilationWidth.setText(String.valueOf(preset.dilationWidth));
+        fields.dilationHeight.setText(String.valueOf(preset.dilationHeight));
+        fields.dilationIter.setText(String.valueOf(preset.dilationIter));
+
+        fields.erosionWidth.setText(String.valueOf(preset.erosionWidth));
+        fields.erosionHeight.setText(String.valueOf(preset.erosionHeight));
+        fields.erosionIter.setText(String.valueOf(preset.erosionIter));
+
+        fields.kernelShape.setValue(preset.kernelShape);
+
+        fields.lumenExpandKsize.setText(String.valueOf(preset.lumenExpandKsize));
+        fields.lumenExpandIter.setText(String.valueOf(preset.lumenExpandIter));
+
+        fields.vesselAreaMin.setText(String.valueOf(preset.vesselAreaMin));
+    }
+
+    private int countSelectedAnnotations(QuPathGUI qupath) {
+        if (qupath.getImageData() == null) {
+            return 0;
+        }
+
+        return (int) qupath.getImageData()
+                .getHierarchy()
+                .getSelectionModel()
+                .getSelectedObjects()
+                .stream()
+                .filter(obj -> obj != null && obj.isAnnotation() && obj.getROI() != null)
+                .count();
+    }
+
+    private boolean isPythonConfigured() {
+        String pythonExec = PREFS.get(PREF_PYTHON_EXEC, "");
+        return !pythonExec.isBlank() && new File(pythonExec).exists();
+    }
+
+    private Label statusChip(String text, boolean ok) {
+        Label label = new Label(text);
+        applyStatusChipStyle(label, ok);
+        return label;
+    }
+
+    private void applyStatusChipStyle(Label label, boolean ok) {
+        label.setStyle("-fx-background-color: " + (ok ? "#dff4ee" : "#fff2d5") + ";" +
+                "-fx-text-fill: " + (ok ? "#12664f" : "#805b00") + ";" +
+                "-fx-font-weight: bold;" +
+                "-fx-background-radius: 8;" +
+                "-fx-padding: 5 10 5 10;");
+    }
+
+    private void refreshPythonStatus(Label pythonChip, VBox pythonStatusCard) {
+        boolean pythonReady = isPythonConfigured();
+        pythonChip.setText(pythonReady ? "Python Ready" : "Python Missing");
+        applyStatusChipStyle(pythonChip, pythonReady);
+        updateStatusCard(pythonStatusCard, "Python", pythonReady ? "Ready" : "Needs setup", pythonReady);
+    }
+
+    private VBox statusCard(String label, String value, boolean ok) {
+        Label title = new Label(label);
+        title.setStyle("-fx-text-fill: " + statusTitleColor(label, ok) + "; -fx-font-size: 10px;");
+
+        Label body = new Label(value);
+        body.setWrapText(true);
+        body.setStyle("-fx-text-fill: " + statusBodyColor(label, ok) + "; -fx-font-weight: bold;");
+
+        VBox box = new VBox(3, title, body);
+        box.setMaxWidth(Double.MAX_VALUE);
+        box.setPadding(new Insets(10));
+        box.setStyle("-fx-background-color: " + statusBackground(label, ok) + ";" +
+                "-fx-border-color: " + statusBorder(label, ok) + ";" +
+                "-fx-background-radius: 8;" +
+                "-fx-border-radius: 8;");
+        return box;
+    }
+
+    private void updateStatusCard(VBox card, String label, String value, boolean ok) {
+        Label title = (Label) card.getChildren().get(0);
+        Label body = (Label) card.getChildren().get(1);
+        title.setText(label);
+        body.setText(value);
+        title.setStyle("-fx-text-fill: " + statusTitleColor(label, ok) + "; -fx-font-size: 10px;");
+        body.setStyle("-fx-text-fill: " + statusBodyColor(label, ok) + "; -fx-font-weight: bold;");
+        card.setStyle("-fx-background-color: " + statusBackground(label, ok) + ";" +
+                "-fx-border-color: " + statusBorder(label, ok) + ";" +
+                "-fx-background-radius: 8;" +
+                "-fx-border-radius: 8;");
+    }
+
+    private String statusBackground(String label, boolean ok) {
+        if (!ok) {
+            return "#fff8e8";
+        }
+        if ("Image".equals(label)) {
+            return "#edf8fb";
+        }
+        if ("Selection".equals(label)) {
+            return "#f1f7ee";
+        }
+        if ("Python".equals(label)) {
+            return "#edf7f3";
+        }
+        return "#f6fafb";
+    }
+
+    private String statusBorder(String label, boolean ok) {
+        if (!ok) {
+            return "#efd9a4";
+        }
+        if ("Image".equals(label)) {
+            return "#bddce6";
+        }
+        if ("Selection".equals(label)) {
+            return "#c9dfc0";
+        }
+        if ("Python".equals(label)) {
+            return "#b7ded3";
+        }
+        return "#d7e2e6";
+    }
+
+    private String statusTitleColor(String label, boolean ok) {
+        if (!ok) {
+            return "#9a7210";
+        }
+        if ("Image".equals(label)) {
+            return "#47717d";
+        }
+        if ("Selection".equals(label)) {
+            return "#557646";
+        }
+        if ("Python".equals(label)) {
+            return "#4d7a6c";
+        }
+        return "#71838b";
+    }
+
+    private String statusBodyColor(String label, boolean ok) {
+        if (!ok) {
+            return "#805b00";
+        }
+        if ("Image".equals(label)) {
+            return "#174e5d";
+        }
+        if ("Selection".equals(label)) {
+            return "#315c25";
+        }
+        if ("Python".equals(label)) {
+            return "#12664f";
+        }
+        return "#17313b";
+    }
+
+    private VBox metricCard(String label, String value) {
+        Label title = new Label(label);
+        title.setStyle("-fx-text-fill: #60717c; -fx-font-size: 10px;");
+
+        Label body = new Label(value);
+        body.setStyle("-fx-text-fill: #17313b; -fx-font-weight: bold;");
+
+        VBox box = new VBox(3, title, body);
+        box.setPadding(new Insets(9));
+        box.setPrefWidth(130);
+        box.setStyle("-fx-background-color: #f6fafb;" +
+                "-fx-border-color: #d7e2e6;" +
+                "-fx-background-radius: 8;" +
+                "-fx-border-radius: 8;");
+        return box;
     }
 
     private VBox createSection(String title, HBox... rows) {
@@ -475,6 +880,7 @@ public class VesselSegmentationExtension implements QuPathExtension {
         Label l = new Label(label);
         l.setPrefWidth(185);
         l.setStyle("-fx-text-fill: #27313a; -fx-font-size: 11px;");
+        installTooltip(l, hint);
 
         field.setPrefWidth(125);
         field.setStyle("-fx-background-radius: 6;" +
@@ -482,14 +888,36 @@ public class VesselSegmentationExtension implements QuPathExtension {
                 "-fx-border-color: #aeb7c2;" +
                 "-fx-background-color: white;" +
                 "-fx-padding: 4 6 4 6;");
-
-        Label help = createHelpIcon(hint);
+        installTooltip(field, hint);
 
         Region spacer = new Region();
         HBox.setHgrow(spacer, Priority.ALWAYS);
 
-        HBox row = new HBox(10, l, field, help, spacer);
+        HBox row = new HBox(10, l, field, spacer);
         row.setAlignment(Pos.CENTER_LEFT);
+        installTooltip(row, hint);
+        return row;
+    }
+
+    private HBox row(String label, Region field, String hint) {
+        Label l = new Label(label);
+        l.setPrefWidth(150);
+        l.setStyle("-fx-text-fill: #27313a; -fx-font-size: 11px;");
+        installTooltip(l, hint);
+        installTooltip(field, hint);
+
+        Region spacer = new Region();
+        HBox.setHgrow(spacer, Priority.ALWAYS);
+
+        HBox row = new HBox(10, l, field, spacer);
+        row.setAlignment(Pos.CENTER_LEFT);
+        installTooltip(row, hint);
+        return row;
+    }
+
+    private HBox rowWide(String label, Region field, String hint) {
+        HBox row = row(label, field, hint);
+        HBox.setHgrow(field, Priority.ALWAYS);
         return row;
     }
 
@@ -497,6 +925,7 @@ public class VesselSegmentationExtension implements QuPathExtension {
         Label l = new Label(label);
         l.setPrefWidth(185);
         l.setStyle("-fx-text-fill: #27313a; -fx-font-size: 11px;");
+        installTooltip(l, hint);
 
         field.setPrefWidth(125);
         field.setStyle("-fx-background-radius: 6;" +
@@ -504,36 +933,22 @@ public class VesselSegmentationExtension implements QuPathExtension {
                 "-fx-border-color: #aeb7c2;" +
                 "-fx-background-color: white;" +
                 "-fx-padding: 2 4 2 4;");
-
-        Label help = createHelpIcon(hint);
+        installTooltip(field, hint);
 
         Region spacer = new Region();
         HBox.setHgrow(spacer, Priority.ALWAYS);
 
-        HBox row = new HBox(10, l, field, help, spacer);
+        HBox row = new HBox(10, l, field, spacer);
         row.setAlignment(Pos.CENTER_LEFT);
+        installTooltip(row, hint);
         return row;
     }
 
-    private Label createHelpIcon(String tooltipText) {
-        Label help = new Label("?");
-        help.setMinSize(18, 18);
-        help.setPrefSize(18, 18);
-        help.setMaxSize(18, 18);
-        help.setAlignment(Pos.CENTER);
-        help.setStyle("-fx-background-color: #e8eef5;" +
-                "-fx-text-fill: #42627a;" +
-                "-fx-font-weight: bold;" +
-                "-fx-font-size: 11px;" +
-                "-fx-background-radius: 9;" +
-                "-fx-border-color: #c4d0dc;" +
-                "-fx-border-radius: 9;");
-
+    private void installTooltip(javafx.scene.Node node, String tooltipText) {
         Tooltip tooltip = new Tooltip(tooltipText);
         tooltip.setWrapText(true);
         tooltip.setMaxWidth(280);
-        Tooltip.install(help, tooltip);
-        return help;
+        Tooltip.install(node, tooltip);
     }
 
     private void clearFields(ParameterFields f) {
@@ -676,7 +1091,13 @@ public class VesselSegmentationExtension implements QuPathExtension {
         }
     }
 
-    private void runSegmentation(QuPathGUI qupath, RunParameters params, boolean useSelectedAnnotations) {
+    private void runSegmentation(QuPathGUI qupath,
+                                 RunParameters params,
+                                 boolean useSelectedAnnotations,
+                                 ProgressBar progressBar,
+                                 Label progressLabel,
+                                 TextArea logPreview,
+                                 List<Button> controls) {
 
         try {
             String pythonExec = ensurePythonConfigured();
@@ -684,21 +1105,83 @@ public class VesselSegmentationExtension implements QuPathExtension {
                 return;
             }
 
-            File extractedScript = extractBundledPythonScript();
-
             if (qupath.getImageData() == null) {
                 showMessage(Alert.AlertType.ERROR, "No Image", "No image is currently open in QuPath.");
                 return;
             }
 
+            for (Button control : controls) {
+                control.setDisable(true);
+            }
+            progressBar.setProgress(0);
+            progressLabel.setText(useSelectedAnnotations ? "0 annotations" : "Processing whole image");
+            logPreview.setText("Preparing segmentation job...");
+
+            Thread worker = new Thread(() -> {
+                try {
+                    int totalAdded = runSegmentationJob(
+                            qupath,
+                            params,
+                            useSelectedAnnotations,
+                            pythonExec,
+                            progressBar,
+                            progressLabel,
+                            logPreview
+                    );
+
+                    Platform.runLater(() -> {
+                        progressBar.setProgress(1.0);
+                        progressLabel.setText("100%");
+                        logPreview.appendText("\nSegmentation completed. Objects added: " + totalAdded);
+                        for (Button control : controls) {
+                            control.setDisable(false);
+                        }
+                        showMessage(
+                                Alert.AlertType.INFORMATION,
+                                "Segmentation Finished",
+                                "Segmentation completed successfully.\n\nObjects added to QuPath: " + totalAdded
+                        );
+                    });
+
+                } catch (Exception ex) {
+                    ex.printStackTrace();
+                    Platform.runLater(() -> {
+                        progressBar.setProgress(0);
+                        progressLabel.setText("Failed");
+                        logPreview.appendText("\nError: " + ex.getMessage());
+                        for (Button control : controls) {
+                            control.setDisable(false);
+                        }
+                        showMessage(Alert.AlertType.ERROR, "Execution Error", ex.getMessage());
+                    });
+                }
+            }, "vespa-segmentation-runner");
+
+            worker.setDaemon(true);
+            worker.start();
+
+        } catch (Exception ex) {
+            ex.printStackTrace();
+            showMessage(Alert.AlertType.ERROR, "Execution Error", ex.getMessage());
+        }
+    }
+
+    private int runSegmentationJob(QuPathGUI qupath,
+                                   RunParameters params,
+                                   boolean useSelectedAnnotations,
+                                   String pythonExec,
+                                   ProgressBar progressBar,
+                                   Label progressLabel,
+                                   TextArea logPreview) throws Exception {
+
+            File extractedScript = extractBundledPythonScript();
             File outputDir = Files.createTempDirectory("qupath_vessel_output").toFile();
             outputDir.deleteOnExit();
 
             ImageServer<BufferedImage> server = qupath.getImageData().getServer();
-            File tempInputDir = Files.createTempDirectory("qupath_vessel_input").toFile();
-            tempInputDir.deleteOnExit();
 
             List<ExportTask> exportTasks = new ArrayList<>();
+            updateRunStatus(progressBar, progressLabel, logPreview, 0, 1, "Exporting input regions...");
 
             if (useSelectedAnnotations) {
                 var selectionModel = qupath.getImageData().getHierarchy().getSelectionModel();
@@ -719,8 +1202,7 @@ public class VesselSegmentationExtension implements QuPathExtension {
                 }
 
                 if (validAnnotations.isEmpty()) {
-                    showMessage(Alert.AlertType.ERROR, "No Annotation Selected", "Please select one or more annotations first.");
-                    return;
+                    throw new IllegalArgumentException("Please select one or more annotations first.");
                 }
 
                 int index = 1;
@@ -731,7 +1213,9 @@ public class VesselSegmentationExtension implements QuPathExtension {
                     BufferedImage img = server.readRegion(request);
 
                     String baseName = "qupath_annotation_export_" + index;
-                    File tempImage = new File(tempInputDir, baseName + ".png");
+                    File taskInputDir = Files.createTempDirectory("qupath_vessel_input_" + index + "_").toFile();
+                    taskInputDir.deleteOnExit();
+                    File tempImage = new File(taskInputDir, baseName + ".png");
                     ImageIO.write(img, "PNG", tempImage);
 
                     exportTasks.add(new ExportTask(
@@ -740,7 +1224,8 @@ public class VesselSegmentationExtension implements QuPathExtension {
                             roi.getBoundsY(),
                             roi.getImagePlane(),
                             selectedObject,
-                            roi
+                            roi,
+                            taskInputDir
                     ));
                     index++;
                 }
@@ -758,7 +1243,9 @@ public class VesselSegmentationExtension implements QuPathExtension {
                 );
 
                 String baseName = "qupath_export";
-                File tempImage = new File(tempInputDir, baseName + ".png");
+                File taskInputDir = Files.createTempDirectory("qupath_vessel_input_whole_").toFile();
+                taskInputDir.deleteOnExit();
+                File tempImage = new File(taskInputDir, baseName + ".png");
                 ImageIO.write(img, "PNG", tempImage);
 
                 exportTasks.add(new ExportTask(
@@ -767,14 +1254,29 @@ public class VesselSegmentationExtension implements QuPathExtension {
                         0,
                         ImagePlane.getDefaultPlane(),
                         null,
-                        null
+                        null,
+                        taskInputDir
                 ));
             }
+
+            int totalTasks = exportTasks.size();
+            int completedTasks = 0;
+            int totalAdded = 0;
+
+            for (ExportTask task : exportTasks) {
+                updateRunStatus(
+                        progressBar,
+                        progressLabel,
+                        logPreview,
+                        completedTasks,
+                        totalTasks,
+                        taskProgressMessage(useSelectedAnnotations, completedTasks + 1, totalTasks, "processing")
+                );
 
             ProcessBuilder pb = new ProcessBuilder(
                     pythonExec,
                     extractedScript.getAbsolutePath(),
-                    tempInputDir.getAbsolutePath(),
+                    task.inputDir.getAbsolutePath(),
                     outputDir.getAbsolutePath(),
 
                     "--threshold-mode", params.thresholdMode,
@@ -817,32 +1319,45 @@ public class VesselSegmentationExtension implements QuPathExtension {
             while ((line = reader.readLine()) != null) {
                 System.out.println(line);
                 log.append(line).append("\n");
+                double stageProgress = progressFromPythonLog(line);
+                if (stageProgress >= 0) {
+                    updateRunStatus(
+                            progressBar,
+                            progressLabel,
+                            logPreview,
+                            completedTasks,
+                            totalTasks,
+                            stageProgress,
+                            line
+                    );
+                }
             }
 
             int exitCode = process.waitFor();
 
             if (exitCode != 0 || !log.toString().contains("VESSEL_SEGMENTATION_SUCCESS")) {
-                showExpandableMessage(
-                        Alert.AlertType.ERROR,
-                        "Segmentation Failed",
-                        log.toString().isBlank() ? "Python process failed." : log.toString()
-                );
-                return;
+                    throw new IllegalStateException(log.toString().isBlank() ? "Python process failed." : log.toString());
             }
 
-            int totalAdded = 0;
-
-            for (ExportTask task : exportTasks) {
                 File imageOutputDir = new File(outputDir, task.baseName);
                 File contourCsv = new File(imageOutputDir, "vessel_contours.csv");
                 File measurementCsv = new File(imageOutputDir, task.baseName + "_measurements.csv");
 
                 if (!contourCsv.exists()) {
                     System.out.println("Skipping missing contour CSV: " + contourCsv.getAbsolutePath());
+                    completedTasks++;
+                    updateRunStatus(
+                            progressBar,
+                            progressLabel,
+                            logPreview,
+                            completedTasks,
+                            totalTasks,
+                            taskProgressMessage(useSelectedAnnotations, completedTasks, totalTasks, "completed with no contour CSV")
+                    );
                     continue;
                 }
 
-                totalAdded += importObjectsFromCsv(
+                totalAdded += importObjectsFromCsvOnFxThread(
                         qupath,
                         contourCsv,
                         measurementCsv,
@@ -853,24 +1368,145 @@ public class VesselSegmentationExtension implements QuPathExtension {
                         task.selectedROI,
                         useSelectedAnnotations
                 );
+
+                completedTasks++;
+                updateRunStatus(
+                        progressBar,
+                        progressLabel,
+                        logPreview,
+                        completedTasks,
+                        totalTasks,
+                        taskProgressMessage(useSelectedAnnotations, completedTasks, totalTasks, "completed")
+                );
             }
 
-            qupath.getImageData().getHierarchy().fireHierarchyChangedEvent(this);
+            Platform.runLater(() -> {
+                qupath.getImageData().getHierarchy().fireHierarchyChangedEvent(this);
+                if (qupath.getViewer() != null) {
+                    qupath.getViewer().repaintEntireImage();
+                }
+            });
 
-            if (qupath.getViewer() != null) {
-                qupath.getViewer().repaintEntireImage();
-            }
+            return totalAdded;
+    }
 
-            showMessage(
-                    Alert.AlertType.INFORMATION,
-                    "Segmentation Finished",
-                    "Segmentation completed successfully.\n\nObjects added to QuPath: " + totalAdded
-            );
+    private void updateRunStatus(ProgressBar progressBar,
+                                 Label progressLabel,
+                                 TextArea logPreview,
+                                 int completed,
+                                 int total,
+                                 String message) {
+        updateRunStatus(progressBar, progressLabel, logPreview, completed, total, 0.0, message);
+    }
 
-        } catch (Exception ex) {
-            ex.printStackTrace();
-            showMessage(Alert.AlertType.ERROR, "Execution Error", ex.getMessage());
+    private void updateRunStatus(ProgressBar progressBar,
+                                 Label progressLabel,
+                                 TextArea logPreview,
+                                 int completed,
+                                 int total,
+                                 double currentTaskProgress,
+                                 String message) {
+        double progress;
+        if (total <= 0) {
+            progress = 0;
+        } else {
+            double boundedTaskProgress = Math.max(0.0, Math.min(0.99, currentTaskProgress));
+            progress = (completed + boundedTaskProgress) / total;
         }
+        int percent = (int) Math.round(progress * 100);
+
+        Platform.runLater(() -> {
+            progressBar.setProgress(progress);
+            if (total > 1) {
+                progressLabel.setText(percent + "% (" + completed + "/" + total + ")");
+            } else {
+                progressLabel.setText(percent + "%");
+            }
+            logPreview.appendText("\n" + message);
+            logPreview.setScrollTop(Double.MAX_VALUE);
+        });
+    }
+
+    private double progressFromPythonLog(String line) {
+        String text = line.toLowerCase();
+
+        if (text.contains("found ") && text.contains("png files")) {
+            return 0.05;
+        }
+        if (text.contains("thresholding")) {
+            return 0.18;
+        }
+        if (text.contains("filling vessel lumens")) {
+            return 0.42;
+        }
+        if (text.contains("saved measurements")) {
+            return 0.62;
+        }
+        if (text.contains("saved contours")) {
+            return 0.72;
+        }
+        if (text.contains("saved filled binary mask")) {
+            return 0.82;
+        }
+        if (text.contains("saved overlay")) {
+            return 0.92;
+        }
+        if (text.contains("vessel_segmentation_success")) {
+            return 0.98;
+        }
+
+        return -1;
+    }
+
+    private String taskProgressMessage(boolean useSelectedAnnotations, int current, int total, String state) {
+        if (useSelectedAnnotations) {
+            return "Annotation " + current + "/" + total + " " + state + ".";
+        }
+
+        return "Whole image " + state + ".";
+    }
+
+    private int importObjectsFromCsvOnFxThread(QuPathGUI qupath,
+                                               File contourCsv,
+                                               File measurementCsv,
+                                               double xOffset,
+                                               double yOffset,
+                                               ImagePlane plane,
+                                               PathObject parentObject,
+                                               ROI selectedROI,
+                                               boolean useSelectedAnnotations) throws Exception {
+
+        CountDownLatch latch = new CountDownLatch(1);
+        AtomicInteger added = new AtomicInteger(0);
+        AtomicReference<Exception> error = new AtomicReference<>();
+
+        Platform.runLater(() -> {
+            try {
+                added.set(importObjectsFromCsv(
+                        qupath,
+                        contourCsv,
+                        measurementCsv,
+                        xOffset,
+                        yOffset,
+                        plane,
+                        parentObject,
+                        selectedROI,
+                        useSelectedAnnotations
+                ));
+            } catch (Exception ex) {
+                error.set(ex);
+            } finally {
+                latch.countDown();
+            }
+        });
+
+        latch.await();
+
+        if (error.get() != null) {
+            throw error.get();
+        }
+
+        return added.get();
     }
 
     private int importObjectsFromCsv(QuPathGUI qupath,
@@ -1035,11 +1671,45 @@ public class VesselSegmentationExtension implements QuPathExtension {
     }
 
     private void showMessage(Alert.AlertType type, String title, String message) {
-        Alert alert = new Alert(type);
-        alert.setTitle(title);
-        alert.setHeaderText(null);
-        alert.setContentText(message);
-        alert.showAndWait();
+        Stage dialog = new Stage();
+        dialog.setTitle(title);
+
+        Label icon = new Label(type == Alert.AlertType.INFORMATION ? "i" : "!");
+        icon.setMinSize(42, 42);
+        icon.setPrefSize(42, 42);
+        icon.setAlignment(Pos.CENTER);
+        icon.setStyle("-fx-background-color: " + (type == Alert.AlertType.ERROR ? "#fff0f0" : "#dff4ee") + ";" +
+                "-fx-text-fill: " + (type == Alert.AlertType.ERROR ? "#9f2d2d" : "#12664f") + ";" +
+                "-fx-font-size: 24px;" +
+                "-fx-font-weight: bold;" +
+                "-fx-background-radius: 21;" +
+                "-fx-border-color: " + (type == Alert.AlertType.ERROR ? "#e4b7b7" : "#b7ded3") + ";" +
+                "-fx-border-radius: 21;");
+
+        Label titleLabel = new Label(title);
+        titleLabel.setStyle("-fx-font-size: 15px; -fx-font-weight: bold; -fx-text-fill: #17313b;");
+
+        Label messageLabel = new Label(message);
+        messageLabel.setWrapText(true);
+        messageLabel.setStyle("-fx-font-size: 12px; -fx-text-fill: #334852;");
+
+        Button okButton = new Button("OK");
+        okButton.setStyle(primaryButtonStyle());
+        okButton.setOnAction(e -> dialog.close());
+
+        HBox body = new HBox(16, icon, new VBox(8, titleLabel, messageLabel));
+        body.setAlignment(Pos.CENTER_LEFT);
+
+        HBox footer = new HBox(okButton);
+        footer.setAlignment(Pos.CENTER_RIGHT);
+
+        VBox root = new VBox(18, body, footer);
+        root.setPadding(new Insets(18));
+        root.setStyle("-fx-background-color: #eef4f7;");
+
+        dialog.setScene(new Scene(root, 440, 180));
+        dialog.setResizable(false);
+        dialog.show();
     }
 
     private void showExpandableMessage(Alert.AlertType type, String title, String message) {
@@ -1055,7 +1725,7 @@ public class VesselSegmentationExtension implements QuPathExtension {
 
         alert.getDialogPane().setContent(area);
         alert.setResizable(true);
-        alert.showAndWait();
+        alert.show();
     }
 
     @Override

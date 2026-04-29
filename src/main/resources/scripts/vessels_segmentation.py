@@ -312,13 +312,13 @@ def process_image(
 
     csv_path = image_output_dir / f"{base_name}_measurements.csv"
     measurements_df.to_csv(csv_path, index=True)
-    print(f"✓ Saved measurements: {csv_path}")
+    print(f"Saved measurements: {csv_path}")
 
     # QuPath plugin requirement:
     # Save the polygon contour coordinates so Java can recreate vessels as QuPath objects.
     contours_csv_path = image_output_dir / "vessel_contours.csv"
     save_contours_csv(label_img, contours_csv_path)
-    print(f"✓ Saved contours for QuPath: {contours_csv_path}")
+    print(f"Saved contours for QuPath: {contours_csv_path}")
 
     # ── Step 8: Save filled binary mask ───────────────────────────────
     binary_path = image_output_dir / f"{base_name}_binary.png"
@@ -326,7 +326,7 @@ def process_image(
     if not cv2.imwrite(str(binary_path), clean_mask):
         raise IOError(f"Failed to write binary mask: {binary_path}")
 
-    print(f"✓ Saved filled binary mask: {binary_path}")
+    print(f"Saved filled binary mask: {binary_path}")
 
     # ── Step 9: Colour overlays ────────────────────────────────────────
     # Green = full vessel (walls + filled lumens)
@@ -339,7 +339,7 @@ def process_image(
     if not cv2.imwrite(str(overlay_path), blended):
         raise IOError(f"Failed to write overlay: {overlay_path}")
 
-    print(f"✓ Saved overlay (green=vessel): {overlay_path}")
+    print(f"Saved overlay (green=vessel): {overlay_path}")
 
     # ── Step 10: Statistics ────────────────────────────────────────────
     n_vessels = len(measurements_df)
@@ -420,10 +420,10 @@ def process_folder(
             )
 
         except (ValueError, IOError) as e:
-            print(f"✗ Error processing {png_file.name}: {e}")
+            print(f"Error processing {png_file.name}: {e}")
 
         except Exception:
-            print(f"✗ Unexpected error processing {png_file.name}")
+            print(f"Unexpected error processing {png_file.name}")
             raise
 
     print("\n" + "=" * 60)
@@ -471,7 +471,7 @@ def get_threshold_mode():
         choice = input("Enter your choice (1 or 2): ").strip()
 
         if choice == "1":
-            print("→ Selected: Otsu thresholding\n")
+            print("Selected: Otsu thresholding\n")
             return "otsu", None
 
         if choice == "2":
