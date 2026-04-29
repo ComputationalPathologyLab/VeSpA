@@ -1,204 +1,137 @@
 <p align="center">
-  <img src="vespa_logo.png" width="180" alt="VeSpA logo"/>
+  <img src="src/main/resources/images/vespa_logo.png" width="160" alt="VeSpA logo"/>
 </p>
 
-<h1 align="center">VeSpA: Vessel Spatial Analysis for QuPath</h1>
+<h1 align="center">VeSpA: Vessel Spatial Analysis</h1>
 
 <p align="center">
-  <b>Annotation-guided vessel segmentation and measurement directly inside QuPath</b>
+  <em>Annotation-guided vessel segmentation and morphological quantification for histological images, directly inside QuPath</em>
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/QuPath-extension-blue"/>
-  <img src="https://img.shields.io/badge/QuPath-0.6.0-blue"/>
-  <img src="https://img.shields.io/badge/Java-21-orange"/>
-  <img src="https://img.shields.io/badge/Python-3.9%2B-green"/>
-  <img src="https://img.shields.io/badge/status-active-success"/>
+  <img src="https://img.shields.io/badge/QuPath-0.6.0-1a6e8e?style=flat-square"/>
+  <img src="https://img.shields.io/badge/Java-21-e07f2a?style=flat-square"/>
+  <img src="https://img.shields.io/badge/Python-3.9%2B-4a8f3f?style=flat-square"/>
+  <img src="https://img.shields.io/badge/status-active-3ba07a?style=flat-square"/>
 </p>
 
 ---
 
-## Overview
+## Abstract
 
-**VeSpA** (**Vessel Spatial Analysis**) is a QuPath extension for vessel segmentation in histological images. It combines QuPath's annotation and object hierarchy with a Python-based image-processing pipeline, allowing users to segment vascular structures within selected regions and return the resulting vessel detections directly to QuPath.
+Quantification of vascular architecture in tissue sections is central to understanding tumour microenvironments, organ development, and pathological remodelling. Yet existing tools require either manual delineation or disconnected, script-only pipelines that sacrifice spatial context. Here we present **VeSpA** (**Ve**ssel **Sp**atial **A**nalysis), a QuPath extension that bridges annotation-based region selection with a morphologically rigorous image-processing pipeline, returning vessel detections directly to the QuPath object hierarchy. By operating in the CMYK Yellow colour space and combining adaptive thresholding, iterative morphological repair, and shape-constrained lumen detection, VeSpA recovers intact vessel boundaries—including open or fragmented walls—and delivers per-vessel measurements (area, axis lengths, eccentricity, orientation) alongside annotation-level summaries. The entire workflow runs inside a familiar QuPath interface, preserving image coordinates and enabling immediate downstream spatial analysis without leaving the platform.
 
-The extension is designed for annotation-based workflows where biologically meaningful regions are first defined in QuPath and then processed reproducibly. Segmentation results are imported as QuPath detection objects, preserving image coordinates and enabling downstream measurement, visualization, filtering, and spatial analysis.
+---
+
+## Background and Motivation
+
+Vascular density, vessel morphology, and the spatial distribution of blood vessels are established histopathological indicators across a spectrum of diseases. Manual counting is observer-dependent and impractical at scale; fully automated pipelines often discard the biological context encoded in annotated regions of interest. VeSpA addresses this gap by tightly integrating a parameter-controllable computer vision pipeline with QuPath's annotation and object hierarchy, so that:
+
+- Regions of biological interest defined by the pathologist or researcher directly scope segmentation.
+- Results are imported as first-class QuPath detection objects, inheriting the coordinate system of the original image.
+- Every morphological parameter is accessible and tunable from the GUI without editing scripts.
+
+---
+
+## Algorithm
+
+VeSpA processes each selected region through a deterministic, multi-stage pipeline.
+
+```
+Input image (PNG export from QuPath annotation)
+         │
+         ▼
+ 1. Colour-space transform
+    RGB → CMYK Yellow channel
+         │
+         ▼
+ 2. Adaptive thresholding
+    Otsu (automatic) or percentile (manual)
+         │
+         ▼
+ 3. Morphological cleanup
+    Dilation → Erosion
+    (configurable kernel size, shape, iterations)
+         │
+         ▼
+ 4. Contour filtering
+    Minimum area threshold applied to initial contours
+         │
+         ▼
+ 5. Lumen detection and filling
+    a. Wall repair — morphological closing to bridge fragmented boundaries
+    b. Background labelling — border flood-fill to identify true background
+    c. Candidate isolation — pixels that are neither background nor wall
+    d. Shape filtering — area, Crofton circularity, eccentricity criteria
+    e. Lumen expansion — validated lumens dilated and merged onto walls
+         │
+         ▼
+ 6. Final area filter
+    Post-lumen-fill connected-component size filter
+         │
+         ▼
+ 7. Measurement extraction
+    scikit-image regionprops: area, major/minor axis, eccentricity, orientation
+         │
+         ▼
+ 8. Contour extraction → CSV
+    OpenCV findContours; Douglas–Peucker approximation (ε = 10⁻⁷ × arc length)
+         │
+         ▼
+ 9. QuPath object import (Java)
+    Polygon ROIs reconstructed from contour CSV, translated to image coordinates,
+    filtered to annotation boundary, added to object hierarchy with measurements
+```
+
+The CMYK Yellow channel was chosen because it selectively enhances eosin-stained structures against haematoxylin-dominated backgrounds in standard H&E tissue sections, improving signal separation without manual colour deconvolution.
 
 ---
 
 ## Key Features
 
-- **Annotation-aware processing**: segment vessels inside selected QuPath annotations.
-- **Multi-annotation support**: process several selected annotations in a single run.
-- **Whole-image mode**: process the entire image when annotation-based analysis is not required.
-- **Integrated Python configuration**: configure, test, install, reset, and validate the Python environment from the plugin GUI.
-- **Preset-based segmentation**: choose from practical presets such as `Balanced`, `Sensitive`, `Fragmented walls`, and `Strict cleanup`.
-- **Advanced tuning**: expose thresholding, lumen detection, wall repair, morphology, lumen expansion, and vessel filtering parameters.
-- **QuPath-native outputs**: import vessel contours as detection objects with measurements.
-- **Progress feedback**: show processing progress for selected annotations and whole-image workflows.
-
----
-
-## Workflow
-
-```text
-QuPath image and annotation selection
-        |
-        v
-VeSpA Java extension
-        |
-        v
-Region export as PNG
-        |
-        v
-Python vessel segmentation pipeline
-        |
-        v
-Contour and measurement CSV output
-        |
-        v
-QuPath object import
-        |
-        v
-Vessel detections and annotation-level summaries
-```
-
----
-
-## Requirements
-
-### QuPath
-
-- QuPath compatible with the `qupath-gui-fx:0.6.0` API.
-- Java 21 runtime/toolchain.
-
-### Python
-
-VeSpA requires a Python executable with the following packages:
-
-- `opencv-python>=4.10,<5`
-- `numpy>=1.26,<3`
-- `scikit-image>=0.24,<1`
-- `pandas>=2.2,<3`
-
-The plugin includes a Python configuration window that can create and manage a dedicated VeSpA environment for you.
-
----
-
-## Installation
-
-### 1. Build the extension
-
-From the project root:
-
-```bash
-./gradlew clean build
-```
-
-The built plugin JAR will be created at:
-
-```text
-build/libs/qupath-extension-vessel-segmentation-1-0.0.1.jar
-```
-
-### 2. Install in QuPath
-
-1. Open QuPath.
-2. Open the QuPath extensions folder or use QuPath's extension manager if available.
-3. Copy the JAR file into the QuPath extensions folder.
-4. Restart QuPath completely.
-5. Open the plugin from:
-
-```text
-Extensions > Vessel Segmentation > Run Vessel Segmentation
-```
-
----
-
-## Python Configuration
-
-Open the plugin and click **Configure Python** from the VeSpA sidebar.
-
-The configuration window allows you to:
-
-- browse for a Python executable;
-- auto-detect common Python installations;
-- test the selected executable;
-- check whether required packages are available;
-- install dependencies into a dedicated VeSpA environment;
-- reset the configured Python environment.
-
-If Python is configured correctly, the main plugin window will show **Python Ready**. If the configured executable is missing or reset, the plugin will show **Python Missing** until a valid Python path is saved again.
-
----
-
-## Usage
-
-### Annotation-based segmentation
-
-1. Open an image in QuPath.
-2. Draw or select one or more annotations.
-3. Open **Extensions > Vessel Segmentation > Run Vessel Segmentation**.
-4. Select **Selected annotation(s)**.
-5. Choose a segmentation preset or adjust parameters manually.
-6. Click **Run Segmentation**.
-
-VeSpA exports each selected annotation, processes it, and imports vessel detections as children of the corresponding annotation.
-
-### Whole-image segmentation
-
-1. Open an image in QuPath.
-2. Open the VeSpA plugin.
-3. Select **Whole image**.
-4. Choose a preset or adjust parameters.
-5. Click **Run Segmentation**.
-
-Whole-image processing may require substantial memory depending on image size, image type, and system specifications.
+| Capability | Detail |
+|---|---|
+| Annotation-scoped segmentation | Vessels detected inside selected QuPath annotations only |
+| Multi-annotation batch | All selected annotations processed in a single run with per-annotation progress |
+| Whole-image mode | Full-slide processing when annotation-based scoping is not required |
+| CMYK Yellow thresholding | Colour-space transform optimised for H&E staining |
+| Dual threshold modes | Otsu (automatic) and percentile (manual, tunable from GUI) |
+| Lumen-aware segmentation | Hollow vessel structures filled via morphologically validated lumen detection |
+| Four segmentation presets | Balanced · Sensitive · Fragmented walls · Strict cleanup |
+| Fully exposed parameter space | Lumen detection, wall repair, morphology, and expansion parameters all GUI-accessible |
+| Native QuPath outputs | Vessel contours imported as polygon detection objects in the QuPath hierarchy |
+| Per-vessel measurements | Area, major/minor axis length, eccentricity, orientation |
+| Annotation-level summaries | Vessel count and aggregate area propagated to parent annotation |
+| Integrated Python management | Configure, test, check, install, and reset the Python environment from the plugin |
+| Progress feedback | Fine-grained progress bar updates keyed to Python pipeline stage output |
 
 ---
 
 ## Segmentation Presets
 
-Presets do not change the underlying algorithm. They apply named groups of parameter values to the existing segmentation controls.
+Presets load named parameter groups into the parameter fields. Users can start from a preset and then refine individual values without losing the preset as a baseline.
 
-| Preset | Intended use |
-| --- | --- |
-| `Balanced` | General-purpose vessel segmentation using default values. |
-| `Sensitive` | More permissive detection for smaller or weaker vessels; may increase false positives. |
-| `Fragmented walls` | Stronger wall repair and lumen expansion for broken or discontinuous vessel boundaries. |
-| `Strict cleanup` | More conservative filtering to reduce noise-prone detections. |
-
-Users can start from a preset and then modify individual parameters in **Quick Controls** or **Advanced Tuning**.
-
----
-
-## Parameters
-
-### Quick Controls
-
-- **Threshold mode**: choose automatic `otsu` thresholding or manual `percentile` thresholding.
-- **Percentile value**: used only when `percentile` thresholding is selected.
-- **Minimum vessel area**: removes small connected components from the final segmentation.
-
-### Advanced Tuning
-
-- **Lumen detection**: controls lumen candidate area, circularity, and eccentricity filtering.
-- **Wall repair**: controls morphological closing used to repair fragmented walls before lumen detection.
-- **Morphology**: controls dilation and erosion used for initial vessel cleanup.
-- **Lumen expansion**: controls how validated lumens are merged back onto vessel walls.
+| Preset | Intended tissue context | Key differences from Balanced |
+|---|---|---|
+| **Balanced** | General-purpose; well-defined vessel boundaries | Default parameters |
+| **Sensitive** | Small or faintly stained vessels; denser vascular beds | Looser lumen filters, larger dilation, lower area threshold |
+| **Fragmented walls** | Discontinuous or poorly-stained vessel walls | Larger closing kernel, more closing iterations, stronger lumen expansion |
+| **Strict cleanup** | Noisy sections; artefact-prone staining | Tighter circularity and eccentricity filters, higher minimum vessel area |
 
 ---
 
 ## Outputs
 
-For each processed region, the Python pipeline produces:
+For each processed region the Python pipeline writes:
 
-- a binary vessel mask;
-- an overlay image;
-- vessel measurements as CSV;
-- vessel contour coordinates as CSV.
+| File | Content |
+|---|---|
+| `*_binary.png` | Binary vessel mask (filled vessels, post-filtering) |
+| `*_overlay.png` | Original image with green vessel overlay (α = 0.30) |
+| `*_measurements.csv` | Per-vessel morphological measurements |
+| `vessel_contours.csv` | Polygon contour coordinates (`contour_id, point_order, x, y`) |
 
-The Java extension reads the contour and measurement outputs and creates QuPath detection objects with measurements such as:
+The Java layer reads the contour and measurement CSV files and creates QuPath detection objects with the following measurements:
 
 - `VeSpA: Vessel ID`
 - `VeSpA: Area`
@@ -207,101 +140,205 @@ The Java extension reads the contour and measurement outputs and creates QuPath 
 - `VeSpA: Eccentricity`
 - `VeSpA: Orientation`
 
-For annotation-based runs, parent annotations also receive summary measurements, including vessel count and aggregate vessel area.
+Parent annotations additionally receive:
+
+- `Num Vessel`
+- `VeSpA: Total Vessel Area`
+- `VeSpA: Mean Area`, `VeSpA: Mean Major axis length`, `VeSpA: Mean Minor axis length`
+- `VeSpA: Mean Eccentricity`, `VeSpA: Mean Orientation`
 
 ---
 
-## Troubleshooting
+## Requirements
 
-### The extension does not appear in QuPath
+### QuPath
 
-- Confirm that the JAR is placed in the QuPath extensions folder.
-- Restart QuPath completely after copying the JAR.
-- Make sure only one active VeSpA JAR is installed. Multiple versions may cause confusing menu or GUI behavior.
+- QuPath ≥ 0.6.0 (`qupath-gui-fx:0.6.0` API)
+- Java 21 runtime
 
-### Python is shown as missing
+### Python
 
-- Open **Configure Python**.
-- Select a valid Python executable.
-- Click **Test** to confirm that the executable runs.
-- Click **Save**.
-- The main plugin window should update to **Python Ready** after the configuration window closes.
+- Python 3.9 or later
+- `opencv-python >= 4.10, < 5`
+- `numpy >= 1.26, < 3`
+- `scikit-image >= 0.24, < 1`
+- `pandas >= 2.2, < 3`
 
-### Required Python packages are missing
-
-- Open **Configure Python**.
-- Click **Check environment** to inspect installed packages.
-- Click **Install dependencies** to create or update the VeSpA environment.
-- If installation fails, check network access and Python permissions.
-
-### Reset environment says no VeSpA environment was found
-
-VeSpA can use either a dedicated environment or a manually selected Python executable. If no dedicated VeSpA environment exists, reset will still clear the configured Python executable. After reset, configure Python again and save a valid executable.
-
-### Segmentation fails during processing
-
-- Check the log output shown in the plugin window.
-- Confirm that Python can import `cv2`, `numpy`, `skimage`, and `pandas`.
-- Try a smaller annotation to verify that the pipeline works on a limited region.
-- Try the `Balanced` preset before changing advanced parameters.
-
-### Percentile thresholding behaves unexpectedly
-
-- Ensure the **Percentile value** is between `1` and `99`.
-- Low percentiles may increase sensitivity but can introduce noise.
-- Compare results against `otsu` thresholding before committing to a manual value.
-
-### Very large images or annotations may run out of memory
-
-If the image or selected region is too large, the system may run out of memory. This depends on image dimensions, bit depth, number of selected annotations, available RAM, Java memory settings, and Python memory availability.
-
-Recommended mitigations:
-
-- process selected annotations instead of the whole image;
-- split very large regions into smaller annotations;
-- close other memory-intensive applications;
-- increase QuPath/Java memory if appropriate;
-- test settings on a smaller region before running a full dataset.
-
-### Objects are imported but measurements look duplicated
-
-QuPath may warn about duplicate measurement names if the same annotation is processed repeatedly. Consider clearing previous VeSpA detections or using fresh annotations before rerunning segmentation.
+The plugin can create and manage a dedicated VeSpA Python environment from the **Configure Python** dialog.
 
 ---
 
-## Development
+## Installation
 
-### Build
+### 1. Build from source
 
 ```bash
 ./gradlew clean build
 ```
 
-### Main source files
+Output JAR:
 
-```text
-src/main/java/com/rashid/qupath/vesselseg/VesselSegmentationExtension.java
-src/main/java/com/rashid/qupath/vesselseg/PythonConfigDialog.java
-src/main/resources/scripts/vessels_segmentation.py
-src/main/resources/META-INF/services/qupath.lib.gui.extensions.QuPathExtension
+```
+build/libs/qupath-extension-vessel-segmentation-1-0.0.1.jar
 ```
 
-### Extension registration
+Alternatively, use the pre-built JAR from the repository.
 
-QuPath discovers the extension through Java's service loader file:
+### 2. Install in QuPath
 
-```text
-src/main/resources/META-INF/services/qupath.lib.gui.extensions.QuPathExtension
+1. Copy the JAR into your QuPath extensions folder.
+2. Restart QuPath.
+3. The extension is registered automatically via Java's service loader mechanism.
+4. Open it from:
+
+```
+Extensions > Vessel Segmentation > Run Vessel Segmentation
 ```
 
-The file should contain:
-
-```text
-com.rashid.qupath.vesselseg.VesselSegmentationExtension
-```
+> Install only one VeSpA JAR at a time. Multiple JARs may cause duplicate menu entries or conflicting GUI state.
 
 ---
 
-## Notes
+## Python Configuration
 
-VeSpA is intended to support reproducible vessel segmentation workflows inside QuPath. Segmentation quality depends on staining, image acquisition, annotation strategy, and parameter selection. Users should validate results against representative images before applying the workflow to large-scale analyses.
+Open **Configure Python** from the VeSpA sidebar. The dialog allows you to:
+
+- Browse for a Python executable or auto-detect common installations
+- Test the selected executable
+- Check whether required packages are installed
+- Install all dependencies into a dedicated VeSpA environment
+- Reset the configured executable
+
+When Python is correctly configured, the sidebar and header display **Python Ready**. If the executable is missing or has been reset, the status shows **Python Missing** until a valid path is saved.
+
+The bundled Python script (`vessels_segmentation.py`) is extracted from the JAR to a temporary file at runtime, so no manual script deployment is required.
+
+---
+
+## Usage
+
+### Annotation-based segmentation
+
+1. Open an image in QuPath.
+2. Draw or select one or more annotations over the regions to analyse.
+3. Open **Extensions > Vessel Segmentation > Run Vessel Segmentation**.
+4. Select **Selected annotation(s)**.
+5. Choose a preset or tune parameters manually.
+6. Click **Run Segmentation**.
+
+Each annotation is exported as a PNG, processed independently by the Python pipeline, and vessel detections are imported as children of the corresponding annotation object.
+
+### Whole-image segmentation
+
+1. Open an image in QuPath.
+2. Open the VeSpA plugin.
+3. Select **Whole image**.
+4. Choose a preset or tune parameters manually.
+5. Click **Run Segmentation**.
+
+Processing time and memory use scale with image dimensions, bit depth, and system resources.
+
+---
+
+## Parameter Reference
+
+### Quick Controls
+
+| Parameter | Default | Description |
+|---|---|---|
+| Threshold mode | `otsu` | `otsu` for automatic thresholding; `percentile` for manual control |
+| Percentile value | `10` | Active only when threshold mode is `percentile`; valid range 1–99 |
+| Minimum vessel area | `500 px²` | Connected components below this area are discarded |
+
+### Advanced Tuning — Lumen Detection
+
+| Parameter | Default | Description |
+|---|---|---|
+| Min lumen area | `200 px²` | Ignore noise holes smaller than this |
+| Max lumen area | `80 000 px²` | Ignore artefactually large holes |
+| Circularity min | `0.20` | 4π·area / perimeter²; low values permit elongated lumens |
+| Eccentricity max | `0.97` | Rejects near-linear fragmentation artefacts |
+
+### Advanced Tuning — Wall Repair
+
+| Parameter | Default | Description |
+|---|---|---|
+| Closing kernel size | `28 px` | Increase for heavily fragmented vessel walls |
+| Closing iterations | `2` | Additional passes improve closure of large gaps |
+
+### Advanced Tuning — Morphology
+
+| Parameter | Default | Description |
+|---|---|---|
+| Dilation width / height | `21 × 21 px` | Initial binary expansion |
+| Dilation iterations | `1` | |
+| Kernel shape | `ELLIPSE` | `ELLIPSE` · `RECT` · `CROSS` |
+| Erosion width / height | `3 × 3 px` | Boundary restoration after dilation |
+| Erosion iterations | `2` | |
+
+### Advanced Tuning — Lumen Expansion
+
+| Parameter | Default | Description |
+|---|---|---|
+| Expansion kernel size | `5 px` | Dilation applied to validated lumens before merging onto wall mask |
+| Expansion iterations | `3` | Increase to bridge larger inner-wall gaps |
+
+---
+
+## Troubleshooting
+
+**Extension does not appear in QuPath**
+Confirm the JAR is in the correct extensions folder and that QuPath was fully restarted. Ensure only one VeSpA JAR is installed.
+
+**Python Missing status**
+Open **Configure Python**, select a valid executable, click **Test**, then **Save**.
+
+**Required packages are missing**
+In **Configure Python**, click **Check environment** to inspect installed packages, then **Install dependencies** to create or update the VeSpA environment.
+
+**Segmentation fails during processing**
+Check the log output in the plugin window. Confirm that `cv2`, `numpy`, `skimage`, and `pandas` are importable in the configured environment. Test with the **Balanced** preset on a small annotation first.
+
+**Objects imported but measurements appear duplicated**
+QuPath may warn about duplicate measurement names if the same annotation is processed more than once. Clear existing VeSpA detections or create fresh annotations before rerunning.
+
+**Unexpected results with percentile thresholding**
+Compare against Otsu thresholding as a reference. Low percentile values increase sensitivity at the cost of noise; values below 5 are rarely productive.
+
+**Out-of-memory errors**
+Process selected annotations rather than the whole image. Split large regions into smaller annotations. Increase QuPath and Java heap memory if your system allows. Close other memory-intensive applications during processing.
+
+---
+
+## Project Structure
+
+```
+qupath-vessel-segmentation-1/
+├── build.gradle
+├── settings.gradle
+└── src/main/
+    ├── java/com/rashid/qupath/vesselseg/
+    │   ├── VesselSegmentationExtension.java   # Extension entry point, GUI, segmentation runner, object import
+    │   └── PythonConfigDialog.java            # Python environment management dialog
+    └── resources/
+        ├── images/
+        │   └── vespa_logo.png
+        ├── scripts/
+        │   └── vessels_segmentation.py        # Bundled segmentation pipeline (extracted at runtime)
+        └── META-INF/services/
+            └── qupath.lib.gui.extensions.QuPathExtension
+```
+
+### Building
+
+```bash
+./gradlew clean build
+```
+
+Java 21 toolchain is required. Dependencies are fetched from Maven Central and the SciJava repository. The extension registers itself via Java's service loader; no additional QuPath configuration is needed beyond copying the JAR.
+
+---
+
+## Notes on Reproducibility
+
+Segmentation quality depends on staining protocol, scanner calibration, tissue preparation, and annotation strategy. The CMYK Yellow channel approach is optimised for standard H&E sections; other staining protocols may require threshold mode and parameter adjustment. Users should validate parameter choices on a representative subset of images before applying any configuration to a full dataset. All parameters are exposed in the GUI and passed deterministically to the Python pipeline, so any configuration that produces satisfactory results can be reproduced exactly by recording the parameter values used.
