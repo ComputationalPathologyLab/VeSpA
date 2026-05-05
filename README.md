@@ -122,14 +122,6 @@ Presets load named parameter groups into the parameter fields. Users can start f
 
 ## Outputs
 
-For each processed region the Python pipeline writes:
-
-| File | Content |
-|---|---|
-| `*_binary.png` | Binary vessel mask (filled vessels, post-filtering) |
-| `*_overlay.png` | Original image with green vessel overlay (α = 0.30) |
-| `*_measurements.csv` | Per-vessel morphological measurements |
-| `vessel_contours.csv` | Polygon contour coordinates (`contour_id, point_order, x, y`) |
 
 The Java layer reads the contour and measurement CSV files and creates QuPath detection objects with the following measurements:
 
