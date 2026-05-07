@@ -1,0 +1,23 @@
+cff-version: 1.2.0
+message: "If you use VeSpA, please cite it using the metadata below."
+type: software
+title: "VeSpA: Vessel Spatial Analysis — A QuPath Extension for Annotation-Based Vessel Segmentation"
+authors:
+  - family-names: Hussain
+    given-names: Rashid
+    orcid: "https://orcid.org/0000-0002-5923-0823"
+repository-code: "https://github.com/ComputationalPathologyLab/qupath-extension-vespa"
+license: MIT
+abstract: >
+  VeSpA is a QuPath extension for annotation-guided vessel segmentation
+  and morphological quantification in histological images. It operates in
+  the CMYK Yellow colour space, combining adaptive thresholding, iterative
+  morphological repair, and shape-constrained lumen detection to recover
+  intact vessel boundaries and deliver per-vessel measurements directly
+  within the QuPath object hierarchy.
+keywords:
+  - vessel segmentation
+  - QuPath
+  - histology
+  - computational pathology
+  - tumour microenvironment
