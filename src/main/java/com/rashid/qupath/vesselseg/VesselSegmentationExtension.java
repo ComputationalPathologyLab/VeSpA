@@ -409,6 +409,7 @@ public class VesselSegmentationExtension implements QuPathExtension {
         wholeImageButton.setStyle("-fx-text-fill: #27313a;");
 
         int selectedAnnotationCount = countSelectedAnnotations(qupath);
+        int validTmaCoreCount = countValidTMACores(qupath);
         boolean pythonReady = isPythonConfigured();
 
         Label titleLabel = new Label("Vessel Spatial Analysis");
@@ -428,9 +429,11 @@ public class VesselSegmentationExtension implements QuPathExtension {
         inputModeRow.setPrefWidth(470);
         inputModeRow.setAlignment(Pos.CENTER_LEFT);
 
+        Label currentSelectionLabel = new Label(selectionSummary(InputRegionMode.SELECTED_ANNOTATIONS,
+                selectedAnnotationCount, validTmaCoreCount));
         VBox inputPanel = createSection("Input Region",
                 row("Mode", inputModeRow, "Choose the image region used for segmentation"),
-                row("Current selection", new Label(selectedAnnotationCount + " annotation(s) selected"), "Detected from QuPath's current selection")
+                row("Current selection", currentSelectionLabel, "Detected from QuPath's current selection")
         );
 
         Label presetDescription = new Label(SegmentationPreset.BALANCED.description);
@@ -533,7 +536,9 @@ public class VesselSegmentationExtension implements QuPathExtension {
         configButton.setStyle(secondaryButtonStyle());
 
         VBox imageStatusCard = statusCard("Image", qupath.getImageData() == null ? "No image open" : "Image open", qupath.getImageData() != null);
-        VBox selectionStatusCard = statusCard("Selection", selectedAnnotationCount + " annotation(s)", selectedAnnotationCount > 0);
+        VBox selectionStatusCard = statusCard("Selection",
+                selectionCardValue(InputRegionMode.SELECTED_ANNOTATIONS, selectedAnnotationCount, validTmaCoreCount),
+                selectionAvailable(InputRegionMode.SELECTED_ANNOTATIONS, selectedAnnotationCount, validTmaCoreCount));
         VBox pythonStatusCard = statusCard("Python", pythonReady ? "Ready" : "Needs setup", pythonReady);
 
         VBox sidebar = new VBox(14,
@@ -551,6 +556,34 @@ public class VesselSegmentationExtension implements QuPathExtension {
             dialog.showDialog();
             refreshPythonStatus(pythonChip, pythonStatusCard);
         });
+
+        Runnable refreshSelectionDisplay = () -> {
+            int currentAnnotationCount = countSelectedAnnotations(qupath);
+            int currentTmaCoreCount = countValidTMACores(qupath);
+            InputRegionMode currentInputRegionMode = selectedAnnotationButton.isSelected()
+                    ? InputRegionMode.SELECTED_ANNOTATIONS
+                    : tmaCoresButton.isSelected()
+                    ? InputRegionMode.TMA_CORES
+                    : InputRegionMode.WHOLE_IMAGE;
+
+            currentSelectionLabel.setText(selectionSummary(
+                    currentInputRegionMode,
+                    currentAnnotationCount,
+                    currentTmaCoreCount
+            ));
+            updateStatusCard(
+                    selectionStatusCard,
+                    "Selection",
+                    selectionCardValue(currentInputRegionMode, currentAnnotationCount, currentTmaCoreCount),
+                    selectionAvailable(currentInputRegionMode, currentAnnotationCount, currentTmaCoreCount)
+            );
+        };
+
+        selectedAnnotationButton.setOnAction(e -> refreshSelectionDisplay.run());
+        tmaCoresButton.setOnAction(e -> refreshSelectionDisplay.run());
+        wholeImageButton.setOnAction(e -> refreshSelectionDisplay.run());
+        refreshSelectionDisplay.run();
+
         sidebar.setAlignment(Pos.TOP_CENTER);
         sidebar.setPadding(new Insets(12));
         sidebar.setPrefWidth(190);
@@ -731,6 +764,46 @@ public class VesselSegmentationExtension implements QuPathExtension {
                 .stream()
                 .filter(obj -> obj != null && obj.isAnnotation() && obj.getROI() != null)
                 .count();
+    }
+
+    private int countValidTMACores(QuPathGUI qupath) {
+        if (qupath.getImageData() == null) {
+            return 0;
+        }
+
+        TMAGrid tmaGrid = qupath.getImageData().getHierarchy().getTMAGrid();
+        if (tmaGrid == null) {
+            return 0;
+        }
+
+        return (int) tmaGrid.getTMACoreList()
+                .stream()
+                .filter(core -> core != null && !core.isMissing() && core.getROI() != null)
+                .count();
+    }
+
+    private String selectionSummary(InputRegionMode inputRegionMode, int annotationCount, int tmaCoreCount) {
+        return switch (inputRegionMode) {
+            case SELECTED_ANNOTATIONS -> annotationCount + " annotation(s) selected";
+            case TMA_CORES -> tmaCoreCount + " TMA core(s) available";
+            case WHOLE_IMAGE -> "Whole image selected";
+        };
+    }
+
+    private String selectionCardValue(InputRegionMode inputRegionMode, int annotationCount, int tmaCoreCount) {
+        return switch (inputRegionMode) {
+            case SELECTED_ANNOTATIONS -> annotationCount + " annotation(s)";
+            case TMA_CORES -> tmaCoreCount + " TMA core(s)";
+            case WHOLE_IMAGE -> "Whole image";
+        };
+    }
+
+    private boolean selectionAvailable(InputRegionMode inputRegionMode, int annotationCount, int tmaCoreCount) {
+        return switch (inputRegionMode) {
+            case SELECTED_ANNOTATIONS -> annotationCount > 0;
+            case TMA_CORES -> tmaCoreCount > 0;
+            case WHOLE_IMAGE -> true;
+        };
     }
 
     private boolean isPythonConfigured() {
