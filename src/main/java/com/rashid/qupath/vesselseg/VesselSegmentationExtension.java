@@ -6,7 +6,9 @@ import qupath.lib.gui.extensions.QuPathExtension;
 import qupath.lib.images.servers.ImageServer;
 import qupath.lib.objects.PathObject;
 import qupath.lib.objects.PathObjects;
+import qupath.lib.objects.TMACoreObject;
 import qupath.lib.objects.classes.PathClass;
+import qupath.lib.objects.hierarchy.TMAGrid;
 import qupath.lib.regions.ImagePlane;
 import qupath.lib.regions.RegionRequest;
 import qupath.lib.roi.ROIs;
@@ -62,6 +64,12 @@ import java.util.prefs.Preferences;
 import javax.imageio.ImageIO;
 
 public class VesselSegmentationExtension implements QuPathExtension {
+
+    private enum InputRegionMode {
+        SELECTED_ANNOTATIONS,
+        TMA_CORES,
+        WHOLE_IMAGE
+    }
 
     private static final Preferences PREFS =
             Preferences.userNodeForPackage(VesselSegmentationExtension.class);
@@ -390,6 +398,11 @@ public class VesselSegmentationExtension implements QuPathExtension {
         selectedAnnotationButton.setMinWidth(165);
         selectedAnnotationButton.setStyle("-fx-text-fill: #27313a;");
 
+        RadioButton tmaCoresButton = new RadioButton("TMA cores");
+        tmaCoresButton.setToggleGroup(inputModeGroup);
+        tmaCoresButton.setMinWidth(95);
+        tmaCoresButton.setStyle("-fx-text-fill: #27313a;");
+
         RadioButton wholeImageButton = new RadioButton("Whole image");
         wholeImageButton.setToggleGroup(inputModeGroup);
         wholeImageButton.setMinWidth(115);
@@ -410,9 +423,9 @@ public class VesselSegmentationExtension implements QuPathExtension {
         HBox header = new HBox(12, new VBox(2, titleLabel, subtitleLabel), headerSpacer, pythonChip);
         header.setAlignment(Pos.CENTER_LEFT);
 
-        HBox inputModeRow = new HBox(16, selectedAnnotationButton, wholeImageButton);
+        HBox inputModeRow = new HBox(16, selectedAnnotationButton, tmaCoresButton, wholeImageButton);
         inputModeRow.setMinWidth(320);
-        inputModeRow.setPrefWidth(360);
+        inputModeRow.setPrefWidth(470);
         inputModeRow.setAlignment(Pos.CENTER_LEFT);
 
         VBox inputPanel = createSection("Input Region",
@@ -577,11 +590,15 @@ public class VesselSegmentationExtension implements QuPathExtension {
                 return;
             }
 
-            boolean useSelectedAnnotations = selectedAnnotationButton.isSelected();
+            InputRegionMode inputRegionMode = selectedAnnotationButton.isSelected()
+                    ? InputRegionMode.SELECTED_ANNOTATIONS
+                    : tmaCoresButton.isSelected()
+                    ? InputRegionMode.TMA_CORES
+                    : InputRegionMode.WHOLE_IMAGE;
             runSegmentation(
                     qupath,
                     params,
-                    useSelectedAnnotations,
+                    inputRegionMode,
                     progressBar,
                     progressLabel,
                     logPreview,
@@ -1093,7 +1110,7 @@ public class VesselSegmentationExtension implements QuPathExtension {
 
     private void runSegmentation(QuPathGUI qupath,
                                  RunParameters params,
-                                 boolean useSelectedAnnotations,
+                                 InputRegionMode inputRegionMode,
                                  ProgressBar progressBar,
                                  Label progressLabel,
                                  TextArea logPreview,
@@ -1114,7 +1131,7 @@ public class VesselSegmentationExtension implements QuPathExtension {
                 control.setDisable(true);
             }
             progressBar.setProgress(0);
-            progressLabel.setText(useSelectedAnnotations ? "0 annotations" : "Processing whole image");
+            progressLabel.setText(initialProgressLabel(inputRegionMode));
             logPreview.setText("Preparing segmentation job...");
 
             Thread worker = new Thread(() -> {
@@ -1122,7 +1139,7 @@ public class VesselSegmentationExtension implements QuPathExtension {
                     int totalAdded = runSegmentationJob(
                             qupath,
                             params,
-                            useSelectedAnnotations,
+                            inputRegionMode,
                             pythonExec,
                             progressBar,
                             progressLabel,
@@ -1168,7 +1185,7 @@ public class VesselSegmentationExtension implements QuPathExtension {
 
     private int runSegmentationJob(QuPathGUI qupath,
                                    RunParameters params,
-                                   boolean useSelectedAnnotations,
+                                   InputRegionMode inputRegionMode,
                                    String pythonExec,
                                    ProgressBar progressBar,
                                    Label progressLabel,
@@ -1183,7 +1200,7 @@ public class VesselSegmentationExtension implements QuPathExtension {
             List<ExportTask> exportTasks = new ArrayList<>();
             updateRunStatus(progressBar, progressLabel, logPreview, 0, 1, "Exporting input regions...");
 
-            if (useSelectedAnnotations) {
+            if (inputRegionMode == InputRegionMode.SELECTED_ANNOTATIONS) {
                 var selectionModel = qupath.getImageData().getHierarchy().getSelectionModel();
                 List<PathObject> selectedObjects = new ArrayList<>(selectionModel.getSelectedObjects());
 
@@ -1230,6 +1247,51 @@ public class VesselSegmentationExtension implements QuPathExtension {
                     index++;
                 }
 
+            } else if (inputRegionMode == InputRegionMode.TMA_CORES) {
+                var hierarchy = qupath.getImageData().getHierarchy();
+                TMAGrid tmaGrid = hierarchy.getTMAGrid();
+
+                if (tmaGrid == null) {
+                    throw new IllegalArgumentException("No TMA grid was found in the current image.");
+                }
+
+                List<TMACoreObject> validCores = new ArrayList<>();
+                for (TMACoreObject core : tmaGrid.getTMACoreList()) {
+                    if (core == null || core.isMissing() || core.getROI() == null) {
+                        continue;
+                    }
+                    validCores.add(core);
+                }
+
+                if (validCores.isEmpty()) {
+                    throw new IllegalArgumentException("No TMA grid was found in the current image.");
+                }
+
+                int index = 1;
+                for (TMACoreObject core : validCores) {
+                    ROI roi = core.getROI();
+
+                    RegionRequest request = RegionRequest.createInstance(server.getPath(), 1.0, roi);
+                    BufferedImage img = server.readRegion(request);
+
+                    String baseName = "qupath_tma_core_export_" + index;
+                    File taskInputDir = Files.createTempDirectory("qupath_vessel_tma_core_" + index + "_").toFile();
+                    taskInputDir.deleteOnExit();
+                    File tempImage = new File(taskInputDir, baseName + ".png");
+                    ImageIO.write(img, "PNG", tempImage);
+
+                    exportTasks.add(new ExportTask(
+                            baseName,
+                            roi.getBoundsX(),
+                            roi.getBoundsY(),
+                            roi.getImagePlane(),
+                            core,
+                            roi,
+                            taskInputDir
+                    ));
+                    index++;
+                }
+
             } else {
                 BufferedImage img = server.readRegion(
                         RegionRequest.createInstance(
@@ -1270,7 +1332,7 @@ public class VesselSegmentationExtension implements QuPathExtension {
                         logPreview,
                         completedTasks,
                         totalTasks,
-                        taskProgressMessage(useSelectedAnnotations, completedTasks + 1, totalTasks, "processing")
+                        taskProgressMessage(inputRegionMode, completedTasks + 1, totalTasks, "processing")
                 );
 
             ProcessBuilder pb = new ProcessBuilder(
@@ -1352,7 +1414,7 @@ public class VesselSegmentationExtension implements QuPathExtension {
                             logPreview,
                             completedTasks,
                             totalTasks,
-                            taskProgressMessage(useSelectedAnnotations, completedTasks, totalTasks, "completed with no contour CSV")
+                            taskProgressMessage(inputRegionMode, completedTasks, totalTasks, "completed with no contour CSV")
                     );
                     continue;
                 }
@@ -1366,7 +1428,7 @@ public class VesselSegmentationExtension implements QuPathExtension {
                         task.plane,
                         task.parentObject,
                         task.selectedROI,
-                        useSelectedAnnotations
+                        inputRegionMode
                 );
 
                 completedTasks++;
@@ -1376,7 +1438,7 @@ public class VesselSegmentationExtension implements QuPathExtension {
                         logPreview,
                         completedTasks,
                         totalTasks,
-                        taskProgressMessage(useSelectedAnnotations, completedTasks, totalTasks, "completed")
+                        taskProgressMessage(inputRegionMode, completedTasks, totalTasks, "completed")
                 );
             }
 
@@ -1458,9 +1520,21 @@ public class VesselSegmentationExtension implements QuPathExtension {
         return -1;
     }
 
-    private String taskProgressMessage(boolean useSelectedAnnotations, int current, int total, String state) {
-        if (useSelectedAnnotations) {
+    private String initialProgressLabel(InputRegionMode inputRegionMode) {
+        return switch (inputRegionMode) {
+            case SELECTED_ANNOTATIONS -> "0 annotations";
+            case TMA_CORES -> "0 TMA cores";
+            case WHOLE_IMAGE -> "Processing whole image";
+        };
+    }
+
+    private String taskProgressMessage(InputRegionMode inputRegionMode, int current, int total, String state) {
+        if (inputRegionMode == InputRegionMode.SELECTED_ANNOTATIONS) {
             return "Annotation " + current + "/" + total + " " + state + ".";
+        }
+
+        if (inputRegionMode == InputRegionMode.TMA_CORES) {
+            return "TMA core " + current + "/" + total + " " + state + ".";
         }
 
         return "Whole image " + state + ".";
@@ -1474,7 +1548,7 @@ public class VesselSegmentationExtension implements QuPathExtension {
                                                ImagePlane plane,
                                                PathObject parentObject,
                                                ROI selectedROI,
-                                               boolean useSelectedAnnotations) throws Exception {
+                                               InputRegionMode inputRegionMode) throws Exception {
 
         CountDownLatch latch = new CountDownLatch(1);
         AtomicInteger added = new AtomicInteger(0);
@@ -1491,7 +1565,7 @@ public class VesselSegmentationExtension implements QuPathExtension {
                         plane,
                         parentObject,
                         selectedROI,
-                        useSelectedAnnotations
+                        inputRegionMode
                 ));
             } catch (Exception ex) {
                 error.set(ex);
@@ -1517,7 +1591,7 @@ public class VesselSegmentationExtension implements QuPathExtension {
                                      ImagePlane plane,
                                      PathObject parentObject,
                                      ROI selectedROI,
-                                     boolean useSelectedAnnotations) throws Exception {
+                                     InputRegionMode inputRegionMode) throws Exception {
 
         Map<Integer, List<Point2>> contourMap = new LinkedHashMap<>();
         Map<Integer, VesselMeasurement> measurementMap = readMeasurementCsv(measurementCsv);
@@ -1553,7 +1627,7 @@ public class VesselSegmentationExtension implements QuPathExtension {
 
             var roi = ROIs.createPolygonROI(points, plane);
 
-            if (useSelectedAnnotations && selectedROI != null) {
+            if (inputRegionMode != InputRegionMode.WHOLE_IMAGE && selectedROI != null) {
                 double cx = roi.getCentroidX();
                 double cy = roi.getCentroidY();
 
@@ -1580,7 +1654,7 @@ public class VesselSegmentationExtension implements QuPathExtension {
 
         var hierarchy = qupath.getImageData().getHierarchy();
 
-        if (useSelectedAnnotations && parentObject != null && parentObject.isAnnotation()) {
+        if (parentObject != null && (parentObject.isAnnotation() || parentObject instanceof TMACoreObject)) {
             parentObject.addChildObjects(objects);
             parentObject.getMeasurementList().put("Num Vessel", objects.size());
             addParentSummaryMeasurements(parentObject, objects);
