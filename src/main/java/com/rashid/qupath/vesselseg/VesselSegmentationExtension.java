@@ -102,6 +102,7 @@ public class VesselSegmentationExtension implements QuPathExtension {
 
     private static final String DEFAULT_THRESHOLD_MODE = "otsu";
     private static final int DEFAULT_PERCENTILE = 10;
+    private static final String DEFAULT_SIGNAL_EXTRACTION_MODE = "cmyk_yellow";
 
     private static final double WINDOW_WIDTH = 980;
     private static final double WINDOW_HEIGHT = 820;
@@ -154,6 +155,9 @@ public class VesselSegmentationExtension implements QuPathExtension {
     }
 
     private static class ParameterFields {
+        ComboBox<String> signalExtractionMode = new ComboBox<>(
+                FXCollections.observableArrayList("CMYK Yellow", "DAB stain deconvolution")
+        );
         ComboBox<String> thresholdMode = new ComboBox<>(
                 FXCollections.observableArrayList("otsu", "percentile")
         );
@@ -185,6 +189,9 @@ public class VesselSegmentationExtension implements QuPathExtension {
         TextField vesselAreaMin = new TextField(String.valueOf(DEFAULT_VESSEL_AREA_MIN));
 
         ParameterFields() {
+            signalExtractionMode.setValue(signalExtractionModeLabel(DEFAULT_SIGNAL_EXTRACTION_MODE));
+            signalExtractionMode.setPrefWidth(190);
+
             thresholdMode.setValue(DEFAULT_THRESHOLD_MODE);
             thresholdMode.setPrefWidth(120);
 
@@ -208,6 +215,7 @@ public class VesselSegmentationExtension implements QuPathExtension {
         }
 
         void setDefaults() {
+            signalExtractionMode.setValue(signalExtractionModeLabel(DEFAULT_SIGNAL_EXTRACTION_MODE));
             thresholdMode.setValue(DEFAULT_THRESHOLD_MODE);
             percentile.setText(String.valueOf(DEFAULT_PERCENTILE));
             updatePercentileFieldState();
@@ -249,6 +257,7 @@ public class VesselSegmentationExtension implements QuPathExtension {
     }
 
     private static class RunParameters {
+        String signalExtractionMode;
         String thresholdMode;
         int percentile;
 
@@ -458,6 +467,7 @@ public class VesselSegmentationExtension implements QuPathExtension {
         );
 
         VBox quickControlsPanel = createSection("Quick Controls",
+                row("Signal extraction mode", fields.signalExtractionMode, "Choose the preprocessing signal used before thresholding"),
                 row("Threshold mode", fields.thresholdMode, "Otsu is automatic; percentile uses the value below"),
                 row("Percentile value", fields.percentile, "Used only when threshold mode is percentile"),
                 row("Minimum vessel area", fields.vesselAreaMin, "Remove small connected components")
@@ -1055,10 +1065,16 @@ public class VesselSegmentationExtension implements QuPathExtension {
         f.thresholdMode.setValue(DEFAULT_THRESHOLD_MODE);
         f.percentile.setText(String.valueOf(DEFAULT_PERCENTILE));
         f.kernelShape.setValue(DEFAULT_KERNEL_SHAPE);
+        f.signalExtractionMode.setValue(signalExtractionModeLabel(DEFAULT_SIGNAL_EXTRACTION_MODE));
     }
 
     private RunParameters parseParameters(ParameterFields f) {
         RunParameters p = new RunParameters();
+
+        p.signalExtractionMode = signalExtractionModeValue(f.signalExtractionMode.getValue());
+        if (p.signalExtractionMode == null || p.signalExtractionMode.isBlank()) {
+            throw new IllegalArgumentException("Signal extraction mode must be selected.");
+        }
 
         p.thresholdMode = f.thresholdMode.getValue();
         if (p.thresholdMode == null || p.thresholdMode.isBlank()) {
@@ -1414,6 +1430,7 @@ public class VesselSegmentationExtension implements QuPathExtension {
                     task.inputDir.getAbsolutePath(),
                     outputDir.getAbsolutePath(),
 
+                    "--signal-mode", params.signalExtractionMode,
                     "--threshold-mode", params.thresholdMode,
                     "--percentile", String.valueOf(params.percentile),
 
@@ -1611,6 +1628,26 @@ public class VesselSegmentationExtension implements QuPathExtension {
         }
 
         return "Whole image " + state + ".";
+    }
+
+    private static String signalExtractionModeLabel(String value) {
+        return switch (value) {
+            case "cmyk_yellow" -> "CMYK Yellow";
+            case "dab_deconvolution" -> "DAB stain deconvolution";
+            default -> "CMYK Yellow";
+        };
+    }
+
+    private static String signalExtractionModeValue(String label) {
+        if (label == null) {
+            return DEFAULT_SIGNAL_EXTRACTION_MODE;
+        }
+
+        return switch (label) {
+            case "CMYK Yellow" -> "cmyk_yellow";
+            case "DAB stain deconvolution" -> "dab_deconvolution";
+            default -> DEFAULT_SIGNAL_EXTRACTION_MODE;
+        };
     }
 
     private int importObjectsFromCsvOnFxThread(QuPathGUI qupath,

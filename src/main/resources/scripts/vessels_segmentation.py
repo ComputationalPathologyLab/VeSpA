@@ -1,6 +1,7 @@
 import argparse
 import cv2
 import numpy as np
+from skimage.color import rgb2hed
 from skimage.measure import label, regionprops_table, regionprops
 import pandas as pd
 from pathlib import Path
@@ -185,9 +186,60 @@ def save_contours_csv(label_img, csv_path):
 #  PER-IMAGE PROCESSING
 # ─────────────────────────────────────────────
 
+def extract_cmyk_yellow_signal(img_bgr):
+    """
+    Preserve the original VeSpA preprocessing path exactly:
+    convert the RGB image proxy to a CMYK-like Yellow channel.
+    """
+    img_f = img_bgr.astype(np.float32) / 255.0
+    black = 1 - np.max(img_f, axis=2)
+    return ((1 - img_f[:, :, 0] - black) / (1 - black + 1e-10) * 255).astype(np.uint8)
+
+
+def extract_dab_deconvolution_signal(img_bgr):
+    """
+    Extract a DAB optical-density signal using HED stain deconvolution.
+
+    The output is normalized to 8-bit grayscale so that stronger DAB-positive
+    regions have higher foreground intensity before thresholding.
+    """
+    try:
+        img_rgb = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
+        img_rgb = np.clip(img_rgb.astype(np.float32) / 255.0, 1e-6, 1.0)
+        hed = rgb2hed(img_rgb)
+        dab_channel = hed[:, :, 2]
+
+        if not np.isfinite(dab_channel).all():
+            raise ValueError("Computed DAB channel contains non-finite values.")
+
+        dab_channel = np.maximum(dab_channel, 0)
+        dab_signal = cv2.normalize(dab_channel, None, 0, 255, cv2.NORM_MINMAX)
+        return dab_signal.astype(np.uint8)
+
+    except Exception as exc:
+        raise RuntimeError(f"DAB stain deconvolution failed: {exc}") from exc
+
+
+def extract_signal_channel(img_bgr, signal_mode):
+    """
+    Return the grayscale signal used for thresholding.
+    """
+    if signal_mode == "cmyk_yellow":
+        print("Signal extraction mode: CMYK Yellow")
+        return extract_cmyk_yellow_signal(img_bgr)
+
+    if signal_mode == "dab_deconvolution":
+        print("Signal extraction mode: DAB stain deconvolution")
+        return extract_dab_deconvolution_signal(img_bgr)
+
+    raise ValueError(
+        f"Unknown signal-mode: '{signal_mode}'. Expected 'cmyk_yellow' or 'dab_deconvolution'."
+    )
+
 def process_image(
     input_path,
     output_dir,
+    signal_mode="cmyk_yellow",
     threshold_mode="otsu",
     percentile=None,
     dilation_kernel_size=(DILATE_KSIZE, DILATE_KSIZE),
@@ -217,15 +269,13 @@ def process_image(
     if img_bgr is None:
         raise ValueError(f"Could not load image: {input_path}")
 
-    # ── Step 2: Convert to CMYK Yellow channel ─────────────────────────
-    img_f = img_bgr.astype(np.float32) / 255.0
-    K = 1 - np.max(img_f, axis=2)
-    Y_channel = ((1 - img_f[:, :, 0] - K) / (1 - K + 1e-10) * 255).astype(np.uint8)
+    # ── Step 2: Extract the thresholding signal ────────────────────────
+    signal_channel = extract_signal_channel(img_bgr, signal_mode)
 
     # ── Step 3: Threshold ──────────────────────────────────────────────
     if threshold_mode == "otsu":
         _, binary = cv2.threshold(
-            Y_channel,
+            signal_channel,
             0,
             255,
             cv2.THRESH_BINARY + cv2.THRESH_OTSU
@@ -236,9 +286,9 @@ def process_image(
         if percentile is None:
             raise ValueError("threshold_mode is 'percentile' but no percentile value was provided.")
 
-        thresh_value = int(np.percentile(Y_channel, percentile))
+        thresh_value = int(np.percentile(signal_channel, percentile))
         _, binary = cv2.threshold(
-            Y_channel,
+            signal_channel,
             thresh_value,
             255,
             cv2.THRESH_BINARY
@@ -372,6 +422,7 @@ def natural_sort_key(path):
 def process_folder(
     input_folder,
     output_folder,
+    signal_mode="cmyk_yellow",
     threshold_mode="otsu",
     percentile=None,
     dilation_kernel_size=(DILATE_KSIZE, DILATE_KSIZE),
@@ -391,6 +442,7 @@ def process_folder(
     mode_label = f"percentile ({percentile}th)" if threshold_mode == "percentile" else threshold_mode
 
     print(f"Found {len(png_files)} PNG files to process")
+    print(f"Signal extraction mode: {'CMYK Yellow' if signal_mode == 'cmyk_yellow' else 'DAB stain deconvolution'}")
     print(f"Threshold mode: {mode_label}")
     print(f"Dilation kernel size: {dilation_kernel_size}")
     print(f"Dilation iterations: {dilation_iter}")
@@ -400,6 +452,7 @@ def process_folder(
     print("=" * 60)
 
     total_vessels = 0
+    failures = []
 
     for i, png_file in enumerate(png_files, 1):
         print(f"\nProcessing [{i}/{len(png_files)}]: {png_file.name}")
@@ -409,6 +462,7 @@ def process_folder(
             total_vessels += process_image(
                 str(png_file),
                 output_folder,
+                signal_mode,
                 threshold_mode,
                 percentile,
                 dilation_kernel_size,
@@ -421,6 +475,7 @@ def process_folder(
 
         except (ValueError, IOError) as e:
             print(f"Error processing {png_file.name}: {e}")
+            failures.append((png_file.name, str(e)))
 
         except Exception:
             print(f"Unexpected error processing {png_file.name}")
@@ -430,6 +485,10 @@ def process_folder(
     print("Processing complete!")
     print(f"Total vessels detected across all images: {total_vessels}")
     print(f"Output saved to: {output_folder}")
+
+    if failures:
+        failure_text = "; ".join(f"{name}: {error}" for name, error in failures)
+        raise RuntimeError(f"One or more images failed during processing: {failure_text}")
 
 
 # ─────────────────────────────────────────────
@@ -532,6 +591,13 @@ def main():
     parser.add_argument("--lumen-expand-iter", type=int, default=LUMEN_EXPAND_ITER)
 
     parser.add_argument(
+        "--signal-mode",
+        type=str,
+        default="cmyk_yellow",
+        choices=["cmyk_yellow", "dab_deconvolution"]
+    )
+
+    parser.add_argument(
         "--threshold-mode",
         type=str,
         default="otsu",
@@ -582,10 +648,12 @@ def main():
     print(f"Wall close iterations: {WALL_CLOSE_ITER}")
     print(f"Lumen expansion kernel size: {LUMEN_EXPAND_KSIZE}")
     print(f"Lumen expansion iterations: {LUMEN_EXPAND_ITER}")
+    print(f"Signal extraction mode: {'CMYK Yellow' if args.signal_mode == 'cmyk_yellow' else 'DAB stain deconvolution'}")
 
     process_folder(
         input_folder=str(input_folder),
         output_folder=str(output_folder),
+        signal_mode=args.signal_mode,
         threshold_mode=args.threshold_mode,
         percentile=args.percentile,
         dilation_kernel_size=dilation_kernel_size,

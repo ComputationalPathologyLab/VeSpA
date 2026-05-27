@@ -19,7 +19,7 @@
 
 ## Abstract
 
-**VeSpA** (**Ve**ssel **Sp**atial **A**nalysis) is a QuPath extension for vessel segmentation and morphometric analysis in histological whole-slide images and selected regions of interest. The extension couples a QuPath-native Java interface with a Python-based image-processing pipeline, enabling annotation-guided analysis, whole-image processing, reconstruction of vessel polygons in the QuPath hierarchy, and direct import of per-vessel measurements. By combining CMYK Yellow channel extraction, adaptive thresholding, morphological cleanup, lumen-aware filling, and morphometric extraction, VeSpA supports reproducible vessel analysis without leaving the QuPath environment.
+**VeSpA** (**Ve**ssel **Sp**atial **A**nalysis) is a QuPath extension for vessel segmentation and morphometric analysis in histological whole-slide images and selected regions of interest. The extension couples a QuPath-native Java interface with a Python-based image-processing pipeline, enabling annotation-guided analysis, whole-image processing, reconstruction of vessel polygons in the QuPath hierarchy, and direct import of per-vessel measurements. By combining configurable signal extraction (CMYK Yellow by default, with optional DAB stain deconvolution for H-DAB slides), adaptive thresholding, morphological cleanup, lumen-aware filling, and morphometric extraction, VeSpA supports reproducible vessel analysis without leaving the QuPath environment.
 
 ---
 
@@ -93,8 +93,9 @@ VeSpA processes each selected region through a deterministic segmentation pipeli
 Input image or exported annotation region
          │
          ▼
- 1. Colour-space transform
-    RGB → CMYK Yellow channel
+ 1. Signal extraction
+    CMYK Yellow channel (default)
+    or DAB stain deconvolution (optional)
          │
          ▼
  2. Adaptive thresholding
@@ -139,7 +140,7 @@ Input image or exported annotation region
 | TMA core support | Works with QuPath objects and ROI export workflows used in TMA analysis |
 | Native QuPath reconstruction | Rebuild vessels as polygon ROIs directly in the QuPath hierarchy |
 | Measurement import | Attach vessel-level measurements to reconstructed objects |
-| CMYK Yellow thresholding | Leverages stain-sensitive colour-space separation for H&E-style images |
+| Configurable signal extraction | Supports CMYK Yellow by default and optional DAB stain deconvolution for H-DAB images |
 | Dual threshold modes | Otsu and percentile-based thresholding |
 | Lumen-aware segmentation | Fills biologically plausible luminal spaces using geometric filtering |
 | Preset-driven GUI | Balanced, Sensitive, Fragmented walls, and Strict cleanup presets |
@@ -181,7 +182,7 @@ Imported QuPath vessel objects receive measurements including:
 - `VeSpA: Eccentricity`
 - `VeSpA: Orientation`
 
-Parent annotations may also receive summary statistics such as:
+Parent annotations and TMA cores also receive summary statistics such as:
 
 - vessel count
 - total vessel area
@@ -264,6 +265,17 @@ When configuration succeeds, the GUI displays **Python Ready**. If the interpret
 
 Each annotation is exported, processed independently, and re-imported as vessel detections attached to the corresponding parent annotation.
 
+### TMA core segmentation
+
+1. Open an image in QuPath with a TMA grid designated.
+2. Open **Extensions > Vessel Segmentation > Run Vessel Segmentation**.
+3. Select **TMA cores**.
+4. The sidebar shows how many valid cores are available.
+5. Choose a preset or tune parameters manually.
+6. Click **Run Segmentation**.
+
+Each non-missing TMA core is exported, processed independently, and re-imported as vessel detections attached to the corresponding core object. Summary measurements are added to each core.
+
 ### Whole-image segmentation
 
 1. Open an image in QuPath.
@@ -282,6 +294,7 @@ Use whole-image mode only when system memory and image size permit practical pro
 
 | Parameter | Default | Description |
 |---|---|---|
+| Signal extraction mode | `CMYK Yellow` | Default CMYK Yellow preprocessing, or optional DAB stain deconvolution for H-DAB images |
 | Threshold mode | `otsu` | Automatic Otsu thresholding or manual percentile thresholding |
 | Percentile value | `10` | Used only in percentile mode; valid range `1–99` |
 | Minimum vessel area | `500 px²` | Removes small connected components after segmentation |
