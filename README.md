@@ -19,7 +19,7 @@
 
 ## Abstract
 
-**VeSpA** (**Ve**ssel **Sp**atial **A**nalysis) is a QuPath extension for vessel segmentation and morphometric analysis in histological whole-slide images and selected regions of interest. The extension couples a QuPath-native Java interface with a Python-based image-processing pipeline, enabling annotation-guided analysis, whole-image processing, reconstruction of vessel polygons in the QuPath hierarchy, and direct import of per-vessel measurements. By combining configurable signal extraction (CMYK Yellow by default, with optional DAB stain deconvolution for H-DAB slides), adaptive thresholding, morphological cleanup, lumen-aware filling, and morphometric extraction, VeSpA supports reproducible vessel analysis without leaving the QuPath environment.
+**VeSpA** (**Ve**ssel **Sp**atial **A**nalysis) is a QuPath extension for vessel segmentation and morphometric analysis in histological whole-slide images and selected regions of interest. The extension couples a QuPath-native Java interface with a Python-based image-processing pipeline, enabling annotation-guided analysis, TMA-core analysis, whole-image processing, reconstruction of vessel polygons in the QuPath hierarchy, and direct import of per-vessel measurements. By combining configurable signal extraction (CMYK Yellow by default, with optional DAB stain deconvolution for H-DAB slides), adaptive thresholding, morphological cleanup, lumen-aware filling, and morphometric extraction, VeSpA supports reproducible vessel analysis without leaving the QuPath environment.
 
 ---
 
@@ -55,6 +55,7 @@ Quantification of vascular architecture in tissue sections is central to studyin
 VeSpA addresses this gap by integrating a configurable vessel-segmentation workflow directly with the QuPath object hierarchy so that:
 
 - annotations define the exact biological regions to analyse
+- TMA cores can be processed as independent parent regions
 - detections return as native QuPath polygon objects in image coordinates
 - morphometric measurements are attached to each reconstructed vessel
 - the full workflow remains accessible through a GUI rather than custom scripting
@@ -68,11 +69,12 @@ VeSpA follows a two-layer design:
 1. **QuPath extension layer (this repository)**
    - Java/Gradle project
    - GUI, menus, execution control, progress reporting
-   - annotation export and result import
+   - annotation, TMA-core, and whole-image export / import workflows
    - Python environment configuration
 
 2. **Python segmentation layer**
    - vessel segmentation logic
+   - signal extraction
    - lumen filling
    - contour export
    - morphometric extraction
@@ -89,8 +91,8 @@ This allows the extension to run in QuPath while the broader VeSpA Python backen
 
 VeSpA processes each selected region through a deterministic segmentation pipeline.
 
-```
-Input image or exported annotation region
+```text
+Input image or exported annotation/TMA/whole-image region
          │
          ▼
  1. Signal extraction
@@ -146,6 +148,21 @@ Input image or exported annotation region
 | Preset-driven GUI | Balanced, Sensitive, Fragmented walls, and Strict cleanup presets |
 | Integrated Python management | Configure, test, validate, install, and reset the Python environment from the extension |
 | In-QuPath execution | No external notebook or manual CSV post-processing required |
+
+---
+
+## GUI Overview
+
+The current VeSpA interface is designed for routine use inside QuPath without leaving the viewer context.
+
+- **Sidebar status area** shows image state, current selection/TMA availability, and Python readiness
+- **Input Region** supports `Selected annotation(s)`, `TMA cores`, and `Whole image`
+- **Segmentation Preset** provides quick starting points for common vessel appearances
+- **Quick Controls** expose signal extraction mode, thresholding mode, and minimum vessel area
+- **Advanced Tuning** contains lumen detection, wall repair, morphology, and lumen expansion controls
+- **Run panel** provides live progress updates and an in-window processing log
+
+This layout is intended to preserve a pathologist-friendly workflow while still exposing the core segmentation parameters.
 
 ---
 
@@ -214,7 +231,7 @@ The extension can manage a dedicated VeSpA Python environment through the **Conf
 ### 1. Build the extension
 
 ```bash
-./gradlew clean build
+./gradlew clean jar
 ```
 
 Expected JAR output:
@@ -234,6 +251,16 @@ Extensions > Vessel Segmentation > Run Vessel Segmentation
 ```
 
 > Keep only one VeSpA extension JAR installed at a time to avoid duplicate menu entries.
+
+### 3. Configure Python
+
+After the extension is installed:
+
+1. Launch VeSpA from the QuPath menu.
+2. Click **Configure Python**.
+3. Select or auto-detect a Python interpreter.
+4. Test the interpreter and install dependencies if needed.
+5. Save the configuration and return to the main VeSpA window.
 
 ---
 
@@ -285,6 +312,13 @@ Each non-missing TMA core is exported, processed independently, and re-imported 
 5. Click **Run Segmentation**.
 
 Use whole-image mode only when system memory and image size permit practical processing.
+
+### Choosing a signal extraction mode
+
+- **CMYK Yellow** is the default and preserves the original VeSpA preprocessing behavior.
+- **DAB stain deconvolution** is intended for brightfield H-DAB images where stain-separated DAB optical density may provide cleaner vessel signal.
+
+In practice, CMYK Yellow is a good default starting point. DAB mode is most useful when vessels are specifically labeled with DAB and the raw RGB contrast is less reliable than stain-separated signal.
 
 ---
 
@@ -348,6 +382,12 @@ Use **Check environment** and then **Install dependencies** from the Python conf
 **Segmentation fails during processing**  
 Inspect the in-plugin log panel and confirm that `cv2`, `numpy`, `scikit-image`, and `pandas` are available in the configured Python environment.
 
+**No TMA grid was found in the current image**  
+TMA-core mode requires a valid QuPath TMA grid. Switch to annotation or whole-image mode if the slide is not a TMA project.
+
+**DAB stain deconvolution fails**  
+Confirm the image is a brightfield H-DAB-style input and that the Python environment includes a working `scikit-image` installation.
+
 **Duplicated measurements in QuPath**  
 This may occur when the same annotation is processed repeatedly without clearing prior VeSpA detections.
 
@@ -362,39 +402,34 @@ Prefer selected annotations over whole-image mode for very large images. Very la
 ## Project Structure
 
 ```text
-qupath-extension-vespa/
-├── README.md
+qupath-vessel-segmentation-1/
+├── src/main/java/com/rashid/qupath/vesselseg/
+│   ├── VesselSegmentationExtension.java
+│   └── PythonConfigDialog.java
+├── src/main/resources/
+│   ├── images/
+│   └── scripts/vessels_segmentation.py
 ├── build.gradle
 ├── settings.gradle
-├── .gitignore
-└── src/main/
-    ├── java/com/rashid/qupath/vesselseg/
-    │   ├── VesselSegmentationExtension.java
-    │   └── PythonConfigDialog.java
-    └── resources/
-        ├── images/
-        │   └── vespa_logo.png
-        ├── scripts/
-        │   └── vessels_segmentation.py
-        └── META-INF/services/
-            └── qupath.lib.gui.extensions.QuPathExtension
+└── README.md
 ```
 
-This repository currently preserves the working extension implementation while the broader VeSpA ecosystem is being organized into clearer backend and extension responsibilities.
+Key responsibilities:
+
+- `VesselSegmentationExtension.java` — GUI, execution control, region export, progress, and QuPath import
+- `PythonConfigDialog.java` — Python interpreter setup and dependency validation
+- `vessels_segmentation.py` — signal extraction, thresholding, morphology, lumen filling, contour export, and measurements
 
 ---
 
 ## Development Notes
 
-- Build system: Gradle
-- Language level: Java 21
-- QuPath extension registration: Java service loader
-- Python execution model: QuPath exports image regions, then launches the bundled Python pipeline and re-imports outputs
-
-For long-term maintainability, this repository is best treated as the **QuPath-facing integration layer**, while reusable Python segmentation components are maintained in the companion `vespa` repository.
+- Build locally with `./gradlew clean jar`
+- The bundled Python backend is packaged from `src/main/resources/scripts/vessels_segmentation.py`
+- QuPath import expects `vessel_contours.csv` and `*_measurements.csv` outputs from the Python pipeline
+- For large refactors, preserve compatibility with all three input-region modes:
+  - selected annotations
+  - TMA cores
+  - whole image
 
 ---
-
-## Notes on Reproducibility
-
-Segmentation quality depends on staining protocol, scanner characteristics, tissue preparation, ROI selection, and parameter choices. VeSpA exposes the full working parameter set through the GUI so that configurations can be recorded and reused. Users should validate settings on representative images before processing large studies.
