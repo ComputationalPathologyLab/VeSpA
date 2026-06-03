@@ -228,16 +228,14 @@ The extension can manage a dedicated VeSpA Python environment through the **Conf
 
 ## Installation
 
-### 1. Build the extension
+### 1. Download the extension JAR
 
-```bash
-./gradlew clean jar
-```
+Download the latest VeSpA extension JAR from the repository release assets, or obtain the packaged JAR provided with the extension distribution.
 
-Expected JAR output:
+Expected JAR file:
 
 ```text
-build/libs/qupath-extension-vessel-segmentation-1-0.0.1.jar
+qupath-extension-vessel-segmentation-1-0.0.1.jar
 ```
 
 ### 2. Install in QuPath
@@ -424,7 +422,6 @@ Key responsibilities:
 
 ## Development Notes
 
-- Build locally with `./gradlew clean jar`
 - The bundled Python backend is packaged from `src/main/resources/scripts/vessels_segmentation.py`
 - QuPath import expects `vessel_contours.csv` and `*_measurements.csv` outputs from the Python pipeline
 - For large refactors, preserve compatibility with all three input-region modes:
