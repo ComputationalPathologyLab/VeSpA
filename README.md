@@ -13,6 +13,7 @@
   <img src="https://img.shields.io/badge/Java-21-e07f2a?style=flat-square"/>
   <img src="https://img.shields.io/badge/Python-3.9%2B-4a8f3f?style=flat-square"/>
   <img src="https://img.shields.io/badge/status-active-3ba07a?style=flat-square"/>
+  <a href="https://doi.org/10.64898/2026.06.15.732366"><img src="https://img.shields.io/badge/DOI-10.64898%2F2026.06.15.732366-2f6db3?style=flat-square" alt="DOI"/></a>
 </p>
 
 ---
