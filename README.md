@@ -224,19 +224,37 @@ The extension can manage a dedicated VeSpA Python environment through the **Conf
 
 ## Installation
 
-### 1. Locate the VeSpA extension JAR
+### Recommended: install through the ComputationalPathologyLab QuPath catalog
 
-Find the packaged VeSpA extension JAR at:
+1. Open **QuPath**.
+2. Go to **Extensions → Manage extensions**.
+3. Click **Manage extension catalogs**.
+4. Add the following catalog URL:
 
 ```text
-build/libs/qupath-extension-vespa-0.1.0.jar
+https://raw.githubusercontent.com/ComputationalPathologyLab/qupath-extension-catalog/main/catalog.json
 ```
 
-You can then copy or distribute this JAR file for installation in QuPath.
+5. Return to the Extension Manager.
+6. Locate **VeSpA** under the **ComputationalPathologyLab QuPath Catalog**.
+7. Click install and allow QuPath to download the release-hosted JAR automatically.
+8. Restart QuPath if required.
 
-### 2. Install in QuPath
+### Manual installation (fallback)
 
-1. Open QuPath.
+If you prefer a manual installation, download the current release JAR from:
+
+- <https://github.com/ComputationalPathologyLab/VeSpA/releases>
+
+The current release asset is named:
+
+```text
+qupath-extension-vespa-0.1.0.jar
+```
+
+To install manually:
+
+1. Open **QuPath**.
 2. Open the **Extension Manager**.
 3. Click **Open extension directory** to locate the QuPath extensions folder.
 4. Copy `qupath-extension-vespa-0.1.0.jar` into that directory.
@@ -244,15 +262,10 @@ You can then copy or distribute this JAR file for installation in QuPath.
 ![QuPath Extension Manager showing the Open extension directory button](img/Installation_instruction_1.png)
 
 5. Restart QuPath.
-6. Open the extension from:
-
-```text
-Extensions > Vessel Segmentation > Run Vessel Segmentation
-```
 
 > Keep only one VeSpA extension JAR installed at a time to avoid duplicate menu entries.
 
-### 3. Configure Python
+### Configure Python
 
 After the extension is installed:
 
@@ -261,6 +274,12 @@ After the extension is installed:
 3. Select or auto-detect a Python interpreter.
 4. Test the interpreter and install dependencies if needed.
 5. Save the configuration and return to the main VeSpA window.
+
+After installation, launch the extension from:
+
+```text
+Extensions > Vessel Segmentation > Run Vessel Segmentation
+```
 
 ---
 
