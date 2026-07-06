@@ -233,7 +233,7 @@ The extension can manage a dedicated VeSpA Python environment through the **Conf
 Find the packaged VeSpA extension JAR at:
 
 ```text
-build/libs/qupath-extension-vessel-segmentation-1-0.0.1.jar
+build/libs/qupath-extension-vespa-0.1.0.jar
 ```
 
 You can then copy or distribute this JAR file for installation in QuPath.
@@ -243,7 +243,7 @@ You can then copy or distribute this JAR file for installation in QuPath.
 1. Open QuPath.
 2. Open the **Extension Manager**.
 3. Click **Open extension directory** to locate the QuPath extensions folder.
-4. Copy `qupath-extension-vessel-segmentation-1-0.0.1.jar` into that directory.
+4. Copy `qupath-extension-vespa-0.1.0.jar` into that directory.
 
 ![QuPath Extension Manager showing the Open extension directory button](img/Installation_instruction_1.png)
 

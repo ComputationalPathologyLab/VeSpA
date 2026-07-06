@@ -1,0 +1,44 @@
+name: Build and release VeSpA extension
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set version from tag
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          sed -i.bak "s/^version = .*/version = '${VERSION}'/" build.gradle
+          rm -f build.gradle.bak
+
+      - name: Build JAR
+        run: ./gradlew clean jar
+
+      - name: Rename artifact
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          mkdir -p release-artifacts
+          cp build/libs/qupath-extension-vespa-${VERSION}.jar release-artifacts/qupath-extension-vespa-${VERSION}.jar
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release-artifacts/qupath-extension-vespa-*.jar
+          generate_release_notes: true
