@@ -451,3 +451,57 @@ Key responsibilities:
   - whole image
 
 ---
+
+## How to cite VeSpA
+
+If you use VeSpA in your research, please cite the preprint:
+
+**Grion G, Hussain R, Colella FE, Roufail K, Uccella S, Frapolli R, Matteo C, Mintemur O, Pennati F, Renne SL.** *Vessel Spatial Analysis (VeSpA): a tool for whole slide image segmentation, morphometry, and QuPath extension.* bioRxiv. 2026. DOI: [10.64898/2026.06.15.732366](https://doi.org/10.64898/2026.06.15.732366)
+
+Preprint:
+- <https://www.biorxiv.org/content/10.64898/2026.06.15.732366v1>
+
+### BibTeX
+
+```bibtex
+@article{grion2026vespa,
+  title   = {Vessel Spatial Analysis (VeSpA): a tool for whole slide image segmentation, morphometry, and QuPath extension},
+  author  = {Grion, Giulia and Hussain, Rash and Colella, Filippo Emanuele and Roufail, Kirollos and Uccella, Silvia and Frapolli, Roberta and Matteo, Cristina and Mintemur, {"O}mer and Pennati, Francesca and Renne, Salvatore Lorenzo},
+  journal = {bioRxiv},
+  year    = {2026},
+  doi     = {10.64898/2026.06.15.732366},
+  url     = {https://www.biorxiv.org/content/10.64898/2026.06.15.732366v1}
+}
+```
+
+### DOI
+
+```text
+10.64898/2026.06.15.732366
+```
+
+### RIS
+
+```text
+TY  - JOUR
+TI  - Vessel Spatial Analysis (VeSpA): a tool for whole slide image segmentation, morphometry, and QuPath extension
+AU  - Grion, Giulia
+AU  - Hussain, Rash
+AU  - Colella, Filippo Emanuele
+AU  - Roufail, Kirollos
+AU  - Uccella, Silvia
+AU  - Frapolli, Roberta
+AU  - Matteo, Cristina
+AU  - Mintemur, Ömer
+AU  - Pennati, Francesca
+AU  - Renne, Salvatore Lorenzo
+JO  - bioRxiv
+PY  - 2026
+DO  - 10.64898/2026.06.15.732366
+UR  - https://www.biorxiv.org/content/10.64898/2026.06.15.732366v1
+ER  - 
+```
+
+### Suggested reference format
+
+Grion G, Hussain R, Colella FE, Roufail K, Uccella S, Frapolli R, Matteo C, Mintemur O, Pennati F, Renne SL. Vessel Spatial Analysis (VeSpA): a tool for whole slide image segmentation, morphometry, and QuPath extension. bioRxiv. 2026. doi:10.64898/2026.06.15.732366
