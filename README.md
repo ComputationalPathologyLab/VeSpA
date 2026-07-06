@@ -36,15 +36,11 @@ It contains:
 - polygon reconstruction and measurement import back into QuPath
 - bundled resources such as icons and the reference Python script used by the extension
 
-The companion Python/backend repository is:
+Repository:
 
-- [`ComputationalPathologyLab/vespa`](https://github.com/ComputationalPathologyLab/vespa)
+- [`ComputationalPathologyLab/VeSpA`](https://github.com/ComputationalPathologyLab/VeSpA)
 
-The QuPath extension repository is:
-
-- [`ComputationalPathologyLab/qupath-extension-vespa`](https://github.com/ComputationalPathologyLab/qupath-extension-vespa)
-
-This separation keeps QuPath integration concerns independent from the reusable Python method codebase.
+This repository currently serves as the public home of the VeSpA QuPath extension and its bundled reference segmentation script.
 
 ---
 
